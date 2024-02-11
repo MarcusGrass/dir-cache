@@ -1,0 +1,4 @@
+*/**/test-dir
+/.idea
+/target
+*.iml
