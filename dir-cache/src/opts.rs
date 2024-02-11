@@ -1,8 +1,8 @@
+use crate::error::Error;
+use crate::{DirCache, Manifest, MANIFEST_FILE_NAME, MANIFEST_VERSION};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::PathBuf;
-use crate::{DirCache, Manifest, MANIFEST_FILE_NAME, MANIFEST_VERSION};
-use crate::error::Error;
 
 pub struct CacheOptionsBuilder {
     cache_open_opt: Option<CacheOpenOptions>,
@@ -25,7 +25,7 @@ impl CacheOptionsBuilder {
         }
     }
 
-    pub fn with_cache_open_options(mut self, cache_open_options: CacheOpenOptions)  -> Self {
+    pub fn with_cache_open_options(mut self, cache_open_options: CacheOpenOptions) -> Self {
         self.cache_open_opt = Some(cache_open_options);
         self
     }

@@ -1,14 +1,14 @@
 pub mod error;
-mod serde;
 pub mod opts;
+mod serde;
 
 use error::Result;
 
 use crate::error::Error;
+use crate::opts::{CacheInsertOption, CacheReadOpt, CacheWriteOpt, MemFlushOpt, SyncErrorOpt};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
-use crate::opts::{CacheInsertOption, CacheReadOpt, CacheWriteOpt, MemFlushOpt, SyncErrorOpt};
 
 const MANIFEST_VERSION: u64 = 1;
 
@@ -23,7 +23,6 @@ pub struct DirCache {
     sync_opt: SyncErrorOpt,
     flush_opt: MemFlushOpt,
 }
-
 
 impl DirCache {}
 
