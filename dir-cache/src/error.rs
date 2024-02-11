@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -13,6 +13,9 @@ pub enum Error {
     ManifestStringAppendErr(std::fmt::Error),
     WriteContent(PathBuf, std::io::Error),
     ReadContent(PathBuf, std::io::Error),
+    DeleteContent(PathBuf, std::io::Error),
+    InsertWithErr(Box<dyn std::error::Error>),
+    CacheInsertViolation(&'static str),
 }
 
 impl Display for Error {
@@ -41,10 +44,19 @@ impl Display for Error {
             Error::ReadContent(p, e) => f.write_fmt(format_args!(
                 "Failed to read content from disk at {p:?}: {e}"
             )),
+            Error::DeleteContent(p, e) => f.write_fmt(format_args!(
+                "Failed to delete content from disk at {p:?}: {e}"
+            )),
             Error::ParseManifest(e) => {
                 f.write_fmt(format_args!("Failed to parse manifest, cause: {e}"))
             }
             Error::BadManifestPath(s) => f.write_fmt(format_args!("Bad manifest path: {s}")),
+            Error::InsertWithErr(user) => {
+                f.write_fmt(format_args!("Failed to insert with: {user}"))
+            }
+            Error::CacheInsertViolation(opt) => {
+                f.write_fmt(format_args!("Cache insert violation: {opt}"))
+            }
         }
     }
 }

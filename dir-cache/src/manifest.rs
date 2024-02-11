@@ -1,11 +1,14 @@
 use crate::error::Error;
+use crate::opts::{CacheWriteOpt, ExpirationOpt};
 use crate::Result;
 use crate::{
-    unix_time_now, CacheReadOpt, Manifest, MemFlushOpt, PrevSync, RamStoreValue, StoreContent,
-    StoreValue, SyncErrorOpt, MANIFEST_FILE_NAME,
+    unix_time_now, MemPushOpt, PrevSync, RamStoreValue, StoreContent, StoreValue, SyncErrorOpt,
+    MANIFEST_FILE_NAME,
 };
 use std::collections::HashMap;
-use std::fmt::Write;
+use std::fmt::Write as _;
+use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
@@ -26,11 +29,16 @@ macro_rules! bail_or_append_continue {
         }
     }};
 }
+pub(crate) struct Manifest {
+    pub(crate) version: u64,
+    pub(crate) store: HashMap<String, StoreValue>,
+}
+
 impl Manifest {
     pub(crate) fn sync_to_disk(
         &mut self,
         dir: &Path,
-        mem_flush_opt: MemFlushOpt,
+        mem_flush_opt: MemPushOpt,
         sync_error_opt: SyncErrorOpt,
     ) -> Result<()> {
         let mut manifest_raw = String::new();
@@ -88,14 +96,14 @@ impl Manifest {
                             .map_err(Error::ManifestStringAppendErr);
                         bail_or_append_continue!(k, res, errors, sync_error_opt);
                         match mem_flush_opt {
-                            MemFlushOpt::RetainOnWrite => {
+                            MemPushOpt::RetainOnWrite => {
                                 im.prev_sync = Some(PrevSync {
                                     content_file: file_name,
                                     synced_at: now,
                                 });
                                 None
                             }
-                            MemFlushOpt::FlushOnWrite => Some(StoreContent::OnDisk(file_name)),
+                            MemPushOpt::DumpOnWrite => Some(StoreContent::OnDisk(file_name)),
                         }
                     }
                 }
@@ -126,7 +134,8 @@ impl Manifest {
         path: &Path,
         raw: &str,
         version: u64,
-        cache_read_opt: CacheReadOpt,
+        eager_load: bool,
+        expiration_opt: ExpirationOpt,
     ) -> Result<Self> {
         let mut lines = raw.lines();
         let first = lines
@@ -144,6 +153,7 @@ impl Manifest {
             version,
             store: HashMap::new(),
         };
+        let now = unix_time_now()?;
         for (ind, line) in lines.enumerate() {
             let line_no = ind + 2;
             let (len, rest) = line.split_once(',').ok_or_else(|| {
@@ -172,33 +182,107 @@ impl Manifest {
             let epoch_nanos = u128::from_le_bytes(bytes_le);
             let secs = epoch_nanos / 1_000_000_000u128;
             let nanos = epoch_nanos % 1_000_000_000u128;
-            let dur = Duration::new(secs as u64, nanos as u32);
-            let value = match cache_read_opt {
-                CacheReadOpt::OnOpen => {
-                    let path_ext = uuid.to_string();
-                    let content_path = path.join(&path_ext);
-                    let content = std::fs::read(&content_path)
-                        .map_err(|e| Error::ReadContent(content_path, e))?;
-                    StoreValue {
-                        content: StoreContent::InMem(RamStoreValue {
-                            content,
-                            prev_sync: Some(PrevSync {
-                                content_file: path_ext,
-                                synced_at: dur,
-                            }),
-                        }),
-                        last_updated: Default::default(),
+            let age = Duration::new(secs as u64, nanos as u32);
+            match expiration_opt {
+                ExpirationOpt::DoNothing => {}
+                ExpirationOpt::DeleteAfter(max_ttl) => {
+                    if age.saturating_add(max_ttl) >= now {
+                        let path_ext = uuid.to_string();
+                        let content_path = path.join(&path_ext);
+                        std::fs::remove_file(&content_path)
+                            .map_err(|e| Error::DeleteContent(content_path, e))?;
+                        continue;
                     }
                 }
-                CacheReadOpt::OnRead => StoreValue {
+            }
+
+            let value = if eager_load {
+                let path_ext = uuid.to_string();
+                let content_path = path.join(&path_ext);
+                let content = std::fs::read(&content_path)
+                    .map_err(|e| Error::ReadContent(content_path, e))?;
+                StoreValue {
+                    content: StoreContent::InMem(RamStoreValue {
+                        content,
+                        prev_sync: Some(PrevSync {
+                            content_file: path_ext,
+                            synced_at: age,
+                        }),
+                    }),
+                    last_updated: Default::default(),
+                }
+            } else {
+                StoreValue {
                     content: StoreContent::OnDisk(uuid.to_string()),
-                    last_updated: dur,
-                },
+                    last_updated: age,
+                }
             };
             manifest.store.insert(key.to_string(), value);
         }
 
         Ok(manifest)
+    }
+
+    #[inline]
+    pub(crate) fn exists(&self, key: &str) -> bool {
+        self.store.contains_key(key)
+    }
+
+    pub(crate) fn write_new(
+        &mut self,
+        base: &Path,
+        key: String,
+        content: Vec<u8>,
+        mem_flush_opt: MemPushOpt,
+        cache_write_opt: CacheWriteOpt,
+    ) -> Result<()> {
+        match cache_write_opt {
+            CacheWriteOpt::ManualOnly | CacheWriteOpt::AutoOnDrop => {
+                self.store.insert(
+                    key,
+                    StoreValue {
+                        content: StoreContent::InMem(RamStoreValue {
+                            content,
+                            prev_sync: None,
+                        }),
+                        last_updated: unix_time_now()?,
+                    },
+                );
+            }
+            CacheWriteOpt::OnWrite => {
+                let now = unix_time_now()?;
+                let le = now.as_nanos().to_le_bytes();
+                let ext = uuid::Builder::from_bytes_le(le);
+                let file_name = ext.as_uuid().to_string();
+                let path = base.join(&file_name);
+                std::fs::write(&path, &content)
+                    .map_err(|e| Error::WriteContent(path.clone(), e))?;
+                match mem_flush_opt {
+                    MemPushOpt::RetainOnWrite => {
+                        self.store.insert(
+                            key,
+                            StoreValue {
+                                content: StoreContent::InMem(RamStoreValue {
+                                    content,
+                                    prev_sync: None,
+                                }),
+                                last_updated: now,
+                            },
+                        );
+                    }
+                    MemPushOpt::DumpOnWrite => {
+                        self.store.insert(
+                            key,
+                            StoreValue {
+                                content: StoreContent::OnDisk(file_name),
+                                last_updated: now,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -230,13 +314,14 @@ mod tests {
         let tmp = TempDir::new("cache_dir_eager_test").unwrap();
         let sync_to = tmp.path();
         manifest
-            .sync_to_disk(sync_to, MemFlushOpt::FlushOnWrite, SyncErrorOpt::FailFast)
+            .sync_to_disk(sync_to, MemPushOpt::DumpOnWrite, SyncErrorOpt::FailFast)
             .unwrap();
         let val = manifest.store.get(DUMMY_KEY).unwrap();
         assert!(matches!(val.content, StoreContent::OnDisk(_)));
         let manifest = sync_to.join(MANIFEST_FILE_NAME);
         let raw_read = std::fs::read_to_string(&manifest).unwrap();
-        let read = Manifest::deserialize(sync_to, &raw_read, 1, CacheReadOpt::OnOpen).unwrap();
+        let read =
+            Manifest::deserialize(sync_to, &raw_read, 1, true, ExpirationOpt::DoNothing).unwrap();
         let has_val = read.store.get(DUMMY_KEY).unwrap();
         let StoreContent::InMem(val) = &has_val.content else {
             panic!("Content not read to mem");
@@ -264,7 +349,7 @@ mod tests {
         let tmp = TempDir::new("cache_dir_eager_test").unwrap();
         let sync_to = tmp.path();
         manifest
-            .sync_to_disk(sync_to, MemFlushOpt::RetainOnWrite, SyncErrorOpt::FailFast)
+            .sync_to_disk(sync_to, MemPushOpt::RetainOnWrite, SyncErrorOpt::FailFast)
             .unwrap();
         let val = manifest.store.get(DUMMY_KEY).unwrap();
         let StoreContent::InMem(in_mem) = &val.content else {
@@ -275,9 +360,14 @@ mod tests {
         };
         let manifest = sync_to.join(MANIFEST_FILE_NAME);
         let raw_read = std::fs::read_to_string(&manifest).unwrap();
-        let read =
-            Manifest::deserialize(sync_to, &raw_read, MANIFEST_VERSION, CacheReadOpt::OnRead)
-                .unwrap();
+        let read = Manifest::deserialize(
+            sync_to,
+            &raw_read,
+            MANIFEST_VERSION,
+            false,
+            ExpirationOpt::DoNothing,
+        )
+        .unwrap();
         let has_val = read.store.get(DUMMY_KEY).unwrap();
         let StoreContent::OnDisk(ext) = &has_val.content else {
             panic!("Content not read to mem");
@@ -294,11 +384,9 @@ mod tests {
         };
         let tmp = TempDir::new("fail_fast_to_disk").unwrap();
         let not_found = tmp.path().join("hello");
-        let Err(e) = manifest.sync_to_disk(
-            &not_found,
-            MemFlushOpt::FlushOnWrite,
-            SyncErrorOpt::FailFast,
-        ) else {
+        let Err(e) =
+            manifest.sync_to_disk(&not_found, MemPushOpt::DumpOnWrite, SyncErrorOpt::FailFast)
+        else {
             panic!("Expected err on bad dest write");
         };
         assert!(matches!(e, Error::WriteContent(_, _)));
@@ -314,7 +402,7 @@ mod tests {
         let not_found = tmp.path().join("hello");
         let Err(e) = manifest.sync_to_disk(
             &not_found,
-            MemFlushOpt::FlushOnWrite,
+            MemPushOpt::DumpOnWrite,
             SyncErrorOpt::BestAttempt,
         ) else {
             panic!("Expected err on bad dest write");
