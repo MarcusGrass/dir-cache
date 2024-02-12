@@ -1,6 +1,6 @@
 use dir_cache::error::Error;
 use dir_cache::opts::{
-    CacheOpenOptions, CacheOptionsBuilder, CacheWriteOpt, DirOpen, MemPullOpt, MemPushOpt,
+    CacheOpenOptions, CacheOptionsBuilder, ManifestWriteOpt, DirOpen, MemPullOpt, MemPushOpt,
 };
 use std::convert::Infallible;
 use std::path::Path;
@@ -104,7 +104,7 @@ fn will_insert_with() {
             || Ok::<_, Infallible>(DUMMY_CONTENT.to_vec()),
             MemPullOpt::DontKeepInMemoryOnRead,
             MemPushOpt::DumpOnWrite,
-            CacheWriteOpt::OnWrite,
+            ManifestWriteOpt::OnWrite,
         )
         .unwrap();
     assert_eq!(DUMMY_CONTENT, val.as_ref());

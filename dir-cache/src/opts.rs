@@ -8,7 +8,7 @@ use std::time::Duration;
 pub struct CacheOptionsBuilder {
     cache_open_opt: Option<CacheOpenOptions>,
     cache_insert_opt: Option<CacheInsertOption>,
-    cache_write_opt: Option<CacheWriteOpt>,
+    cache_write_opt: Option<ManifestWriteOpt>,
     sync_opt: Option<SyncErrorOpt>,
     flush_opt: Option<MemPushOpt>,
     pull_opt: Option<MemPullOpt>,
@@ -163,7 +163,7 @@ pub enum CacheInsertOption {
 
 /// When the dir-cache should sync file-contents
 #[derive(Debug, Copy, Clone, Default)]
-pub enum CacheWriteOpt {
+pub enum ManifestWriteOpt {
     /// Only write to disk manually
     ManualOnly,
     /// Only write to disk manually or when the [`DirCache`] is dropped

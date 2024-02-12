@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::opts::{CacheWriteOpt, ExpirationOpt};
+use crate::opts::{ManifestWriteOpt, ExpirationOpt};
 use crate::Result;
 use crate::{
     unix_time_now, MemPushOpt, PrevSync, RamStoreValue, StoreContent, StoreValue, SyncErrorOpt,
@@ -27,6 +27,7 @@ macro_rules! bail_or_append_continue {
         }
     }};
 }
+
 pub(crate) struct Manifest {
     pub(crate) version: u64,
     pub(crate) store: HashMap<String, StoreValue>,
@@ -41,11 +42,8 @@ impl Manifest {
     ) -> Result<()> {
         let mut manifest_raw = String::new();
         let _ = manifest_raw.write_fmt(format_args!("{}\n", self.version));
-        let mut vec_store = self.store.iter_mut().collect::<Vec<_>>();
-        vec_store.sort_by(|a, b| a.0.cmp(&b.0));
-        //
         let mut errors = vec![];
-        for (k, v) in vec_store {
+        for (k, v) in &mut self.store {
             let new_content = match &mut v.content {
                 StoreContent::OnDisk(file_ext) => {
                     let res = manifest_raw
@@ -232,10 +230,10 @@ impl Manifest {
         key: String,
         content: Vec<u8>,
         mem_flush_opt: MemPushOpt,
-        cache_write_opt: CacheWriteOpt,
+        cache_write_opt: ManifestWriteOpt,
     ) -> Result<()> {
         match cache_write_opt {
-            CacheWriteOpt::ManualOnly | CacheWriteOpt::AutoOnDrop => {
+            ManifestWriteOpt::ManualOnly | ManifestWriteOpt::AutoOnDrop => {
                 self.store.insert(
                     key,
                     StoreValue {
@@ -247,7 +245,7 @@ impl Manifest {
                     },
                 );
             }
-            CacheWriteOpt::OnWrite => {
+            ManifestWriteOpt::OnWrite => {
                 let now = unix_time_now()?;
                 let le = now.as_nanos().to_le_bytes();
                 let ext = uuid::Builder::from_bytes_le(le);

@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use crate::error::Error;
 use crate::manifest::Manifest;
 use crate::opts::{
-    CacheInsertOption, CacheWriteOpt, ExpirationOpt, MemPullOpt, MemPushOpt, SyncErrorOpt,
+    CacheInsertOption, ManifestWriteOpt, ExpirationOpt, MemPullOpt, MemPushOpt, SyncErrorOpt,
 };
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
@@ -21,7 +21,7 @@ pub struct DirCache {
     path: PathBuf,
     manifest: Manifest,
     insert_opt: CacheInsertOption,
-    write_opt: CacheWriteOpt,
+    write_opt: ManifestWriteOpt,
     sync_opt: SyncErrorOpt,
     push_opt: MemPushOpt,
     pull_opt: MemPullOpt,
@@ -95,7 +95,7 @@ impl DirCache {
         insert_with: F,
         mem_pull_opt: MemPullOpt,
         mem_push_opt: MemPushOpt,
-        cache_write_opt: CacheWriteOpt,
+        cache_write_opt: ManifestWriteOpt,
     ) -> Result<Cow<[u8]>> {
         // Borrow checker limitation causes this inefficiency, can't have a conditional lifetime,
         // since Cow is returned if let Some(... borrows mut forever.
