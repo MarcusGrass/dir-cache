@@ -68,6 +68,24 @@ impl DirCache {
         Ok(Some(Cow::Borrowed(ram.content.as_slice())))
     }
 
+    #[inline]
+    pub fn get_or_insert_with<
+        E: Into<Box<dyn std::error::Error>>,
+        F: FnOnce() -> core::result::Result<Vec<u8>, E>,
+    >(
+        &mut self,
+        key: &str,
+        insert_with: F,
+    ) -> Result<Cow<[u8]>> {
+        self.get_or_insert_with_opt(
+            key,
+            insert_with,
+            self.pull_opt,
+            self.push_opt,
+            self.write_opt,
+        )
+    }
+
     pub fn get_or_insert_with_opt<
         E: Into<Box<dyn std::error::Error>>,
         F: FnOnce() -> core::result::Result<Vec<u8>, E>,

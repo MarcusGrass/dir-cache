@@ -116,3 +116,16 @@ fn will_insert_with() {
     let val = dc.get(DUMMY_KEY).unwrap().unwrap();
     assert_eq!(DUMMY_CONTENT, val.as_ref());
 }
+
+#[test]
+fn will_insert_with_custom_error_back() {
+    let tmp = TempDir::new("immediate_flush_on_write").unwrap();
+    let mut dc = CacheOptionsBuilder::new()
+        .with_cache_open_options(CacheOpenOptions::new(DirOpen::CreateIfMissing, false))
+        .open(tmp.path().to_path_buf())
+        .unwrap();
+    let Err(e) = dc.get_or_insert_with(DUMMY_KEY, || Err("Nooo!".to_string())) else {
+        panic!("Expected above string err");
+    };
+    assert!(e.to_string().ends_with("Nooo!"));
+}

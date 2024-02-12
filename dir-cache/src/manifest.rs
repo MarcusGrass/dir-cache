@@ -7,8 +7,6 @@ use crate::{
 };
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::fs::File;
-use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;
