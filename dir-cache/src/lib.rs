@@ -32,12 +32,12 @@ impl DirCache {
 
     #[inline]
     pub fn get(&mut self, key: &Path) -> Result<Option<Cow<[u8]>>> {
-        self.inner.get_opt(key, self.opts.mem_pull_opt)
+        self.inner.get_opt(key, self.opts.mem_pull_opt, self.opts.generation_opt)
     }
 
     #[inline]
-    pub fn get_opt(&mut self, key: &Path, mem_pull_opt: MemPullOpt) -> Result<Option<Cow<[u8]>>> {
-        self.inner.get_opt(key, mem_pull_opt)
+    pub fn get_opt(&mut self, key: &Path, opts: DirCacheOpts) -> Result<Option<Cow<[u8]>>> {
+        self.inner.get_opt(key, opts.mem_pull_opt, opts.generation_opt)
     }
 
     #[inline]
@@ -127,11 +127,38 @@ struct DirCacheInner {
 }
 
 impl DirCacheInner {
-    fn get_opt(&mut self, key: &Path, mem_pull_opt: MemPullOpt) -> Result<Option<Cow<[u8]>>> {
-        let Some(val) = self.store.get_mut(key) else {
+    fn get_opt(&mut self, key: &Path, mem_pull_opt: MemPullOpt, generation_opt: GenerationOpt) -> Result<Option<Cow<[u8]>>> {
+        // Borrow checker...
+        if !self.store.contains_key(key) {
             return Ok(None);
-        };
-        let val_ref_in_mem = &mut val.in_mem;
+        }
+        let val = self.store.get(key).unwrap();
+        let now = unix_time_now()?;
+        let path = self.base.join(key);
+        // To be able to remove this key, the below Cow borrow-return needs a separate borrow lasting
+        // for the remainder of this function, so here we are.
+        if val.last_updated.saturating_add(generation_opt.expiration.as_dur()) <= now {
+            // The value in memory should be younger or equal to the first value on disk
+            // if it's too old, this key should be cleaned
+            try_remove_dir(&path)?;
+            self.store.remove(key);
+            return Ok(None);
+        }
+        if let Some(f) = val.on_disk.get(0) {
+            if f.age.saturating_add(generation_opt.expiration.as_dur()) <= now {
+                // No value in mem, also first value on disk is too old, clean up
+                try_remove_dir(&path)?;
+                self.store.remove(key);
+                return Ok(None);
+            }
+        } else {
+            // No value in mem, no values on disk, clean
+            try_remove_dir(&path)?;
+            self.store.remove(key);
+            return Ok(None);
+        }
+
+        let val_ref_in_mem = &mut self.store.get_mut(key).unwrap().in_mem;
         let store = if let Some(in_mem) = val_ref_in_mem {
             return Ok(Some(Cow::Borrowed(in_mem.content.as_slice())));
         } else {
@@ -165,7 +192,7 @@ impl DirCacheInner {
     ) -> Result<Cow<[u8]>> {
         // Dumb borrow checker, going to end up here on an if let https://blog.rust-lang.org/inside-rust/2023/10/06/polonius-update.html
         if self.store.contains_key(key) {
-            return Ok(self.get_opt(key, mem_pull_opt)?.unwrap());
+            return Ok(self.get_opt(key, mem_pull_opt, generation_opt)?.unwrap());
         }
         let val = match insert_with() {
             Ok(val) => val,
@@ -177,7 +204,7 @@ impl DirCacheInner {
         let use_path = self.base.join(key);
         entry.insert_new_data(&use_path, val, mem_push_opt, generation_opt)?;
         self.store.insert(key.to_path_buf(), entry);
-        Ok(self.get_opt(key, mem_pull_opt)?.unwrap())
+        Ok(self.get_opt(key, mem_pull_opt, generation_opt)?.unwrap())
     }
 
     fn insert_opt(
@@ -499,11 +526,4 @@ struct InMemEntry {
 struct ContentGeneration {
     encoding: Encoding,
     age: Duration,
-}
-
-impl ContentGeneration {
-    #[inline]
-    fn too_old(&self, ttl: Duration, now: Duration) -> bool {
-        self.age.saturating_add(ttl) <= now
-    }
 }
