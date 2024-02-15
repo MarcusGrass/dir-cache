@@ -10,7 +10,7 @@ pub enum Error {
     ParseMetadata(String),
     SystemTime(std::time::SystemTimeError),
     SyncErr(Vec<(String, Error)>),
-    BadManifestPath(String),
+    Open(String),
     ManifestStringAppendErr(std::fmt::Error),
     WriteContent(&'static str, Option<std::io::Error>),
     ReadContent(&'static str, Option<std::io::Error>),
@@ -51,7 +51,7 @@ impl Display for Error {
             Error::ParseManifest(e) => {
                 f.write_fmt(format_args!("Failed to parse manifest, cause: {e}"))
             }
-            Error::BadManifestPath(s) => f.write_fmt(format_args!("Bad manifest path: {s}")),
+            Error::Open(s) => f.write_fmt(format_args!("Bad manifest path: {s}")),
             Error::InsertWithErr(user) => {
                 f.write_fmt(format_args!("Failed to insert with: {user}"))
             }

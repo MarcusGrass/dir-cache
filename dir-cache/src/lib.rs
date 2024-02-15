@@ -99,7 +99,7 @@ impl DirCache {
     }
 }
 
-pub struct DirCacheInner {
+struct DirCacheInner {
     version: u64,
     base: PathBuf,
     store: HashMap<PathBuf, DirCacheEntry>,

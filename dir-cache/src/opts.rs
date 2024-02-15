@@ -14,6 +14,7 @@ pub struct DirCacheOpts {
 }
 
 impl DirCacheOpts {
+
     #[must_use]
     pub fn with_mem_pull_opt(mut self, mem_pull_opt: MemPullOpt) -> Self {
         self.mem_pull_opt = mem_pull_opt;
@@ -38,12 +39,12 @@ impl DirCacheOpts {
                 match exists(path)? {
                     FileObjectExists::AsDir => {}
                     FileObjectExists::No => {
-                        return Err(Error::BadManifestPath(format!(
+                        return Err(Error::Open(format!(
                             "Opened with OnlyIfExists but path {path:?} does not exist"
                         )));
                     }
                     FileObjectExists::AsFile => {
-                        return Err(Error::BadManifestPath(format!(
+                        return Err(Error::Open(format!(
                             "Wanted to open at {path:?}, but path is a file"
                         )));
                     }
