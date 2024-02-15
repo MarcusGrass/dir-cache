@@ -1,12 +1,10 @@
-use crate::error::{Result, Error};
+use crate::error::{Error, Result};
 use std::time::{Duration, SystemTime};
 
 pub(crate) fn duration_from_nano_string(input: &str) -> Result<Duration> {
-    let epoch_nanos: u128 = input.parse().map_err(|_| {
-        Error::ParseMetadata(format!(
-            "Failed to parse timestamp from {input}"
-        ))
-    })?;
+    let epoch_nanos: u128 = input
+        .parse()
+        .map_err(|_| Error::ParseMetadata(format!("Failed to parse timestamp from {input}")))?;
     Ok(duration_from_nanos(epoch_nanos))
 }
 

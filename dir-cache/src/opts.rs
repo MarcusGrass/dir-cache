@@ -1,60 +1,64 @@
+use crate::disk::{ensure_dir, exists, FileObjectExists};
 use crate::error::{Error, Result};
-use crate::{DirCacheInner};
+use crate::{DirCache, DirCacheInner};
 use std::fmt::Display;
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
-pub struct CacheOptionsBuilder {
-    cache_open_opt: Option<CacheOpenOptions>,
-    cache_insert_opt: Option<CacheInsertOption>,
-    cache_write_opt: Option<ManifestWriteOpt>,
-    sync_opt: Option<SyncErrorOpt>,
-    flush_opt: Option<MemPushOpt>,
-    pull_opt: Option<MemPullOpt>,
-    generation_opt: Option<GenerationOpt>,
+#[derive(Copy, Clone, Default)]
+pub struct DirCacheOpts {
+    pub(crate) mem_pull_opt: MemPullOpt,
+    pub(crate) mem_push_opt: MemPushOpt,
+    pub(crate) generation_opt: GenerationOpt,
 }
 
-impl CacheOptionsBuilder {
-    pub fn new() -> Self {
-        Self {
-            cache_open_opt: None,
-            cache_insert_opt: None,
-            cache_write_opt: None,
-            sync_opt: None,
-            flush_opt: None,
-            pull_opt: None,
-            generation_opt: None,
+impl DirCacheOpts {
+    #[must_use]
+    pub fn with_mem_pull_opt(mut self, mem_pull_opt: MemPullOpt) -> Self {
+        self.mem_pull_opt = mem_pull_opt;
+        self
+    }
+
+    #[must_use]
+    pub fn with_mem_push_opt(mut self, mem_push_opt: MemPushOpt) -> Self {
+        self.mem_push_opt = mem_push_opt;
+        self
+    }
+
+    #[must_use]
+    pub fn with_generation_opt(mut self, generation_opt: GenerationOpt) -> Self {
+        self.generation_opt = generation_opt;
+        self
+    }
+
+    pub fn open(self, path: &Path, cache_open_options: CacheOpenOptions) -> Result<DirCache> {
+        match cache_open_options.dir_open {
+            DirOpen::OnlyIfExists => {
+                match exists(path)? {
+                    FileObjectExists::AsDir => {}
+                    FileObjectExists::No => {
+                        return Err(Error::BadManifestPath(format!(
+                            "Opened with OnlyIfExists but path {path:?} does not exist"
+                        )));
+                    }
+                    FileObjectExists::AsFile => {
+                        return Err(Error::BadManifestPath(format!(
+                            "Wanted to open at {path:?}, but path is a file"
+                        )));
+                    }
+                };
+            }
+            DirOpen::CreateIfMissing => {
+                ensure_dir(path)?;
+            }
         }
-    }
-
-    pub fn with_cache_open_options(mut self, cache_open_options: CacheOpenOptions) -> Self {
-        self.cache_open_opt = Some(cache_open_options);
-        self
-    }
-
-    pub fn with_cache_insert_options(mut self, cache_insert_option: CacheInsertOption) -> Self {
-        self.cache_insert_opt = Some(cache_insert_option);
-        self
-    }
-
-    pub fn with_sync_error_options(mut self, sync_error_opt: SyncErrorOpt) -> Self {
-        self.sync_opt = Some(sync_error_opt);
-        self
-    }
-
-    pub fn with_mem_flush_options(mut self, mem_flush_opt: MemPushOpt) -> Self {
-        self.flush_opt = Some(mem_flush_opt);
-        self
-    }
-
-    pub fn with_mem_pull_options(mut self, mem_pull_opt: MemPullOpt) -> Self {
-        self.pull_opt = Some(mem_pull_opt);
-        self
-    }
-
-    pub fn open(self, path: PathBuf) -> crate::error::Result<DirCacheInner> {
-        todo!()
+        let inner = DirCacheInner::read_from_disk(
+            path.to_path_buf(),
+            cache_open_options.eager_load_to_ram,
+            self.generation_opt,
+        )?;
+        Ok(DirCache { inner, opts: self })
     }
 }
 
@@ -80,27 +84,6 @@ pub enum DirOpen {
     /// Create a dir-cache if none exists at the path
     #[default]
     CreateIfMissing,
-}
-
-#[derive(Debug, Copy, Clone, Default)]
-pub enum CacheInsertOption {
-    /// Insert or update
-    #[default]
-    Upsert,
-    /// Only write if no value is present
-    OnlyIfMissing,
-}
-
-/// When the dir-cache should sync file-contents
-#[derive(Debug, Copy, Clone, Default)]
-pub enum ManifestWriteOpt {
-    /// Only write to disk manually
-    ManualOnly,
-    /// Only write to disk manually or when the [`DirCacheInner`] is dropped
-    AutoOnDrop,
-    /// Write to disk immediately
-    #[default]
-    OnWrite,
 }
 
 /// Memory flush option, determines whether the data should be retained in memory when written to disk
@@ -144,16 +127,6 @@ impl ExpirationOpt {
     }
 }
 
-/// If an error is encountered when syncing the full dir-cache
-#[derive(Debug, Copy, Clone, Default)]
-pub enum SyncErrorOpt {
-    /// Fail immediately, perhaps failing to write good values
-    FailFast,
-    /// Skip unwritable entries, but write as many as possible
-    #[default]
-    BestAttempt,
-}
-
 /// How to treat generations of data
 #[derive(Debug, Copy, Clone)]
 pub struct GenerationOpt {
@@ -173,8 +146,16 @@ impl Default for GenerationOpt {
 }
 
 impl GenerationOpt {
-    pub const fn new(max_generations: NonZeroUsize, old_gen_encoding: Encoding, expiration: ExpirationOpt) -> Self {
-        Self { max_generations, old_gen_encoding, expiration }
+    pub const fn new(
+        max_generations: NonZeroUsize,
+        old_gen_encoding: Encoding,
+        expiration: ExpirationOpt,
+    ) -> Self {
+        Self {
+            max_generations,
+            old_gen_encoding,
+            expiration,
+        }
     }
 }
 
@@ -193,8 +174,9 @@ impl Encoding {
     pub(crate) fn deserialize(s: &str) -> Result<Self> {
         match s {
             "0" => Ok(Self::Plain),
-            v => Err(Error::ParseMetadata(format!("Failed to parse encoding from {v}")))
+            v => Err(Error::ParseMetadata(format!(
+                "Failed to parse encoding from {v}"
+            ))),
         }
     }
 }
-

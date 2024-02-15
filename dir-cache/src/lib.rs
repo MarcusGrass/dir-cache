@@ -1,20 +1,103 @@
+use crate::disk::{
+    ensure_dir, ensure_removed_file, read_all_in_dir, read_metadata_if_present,
+    read_raw_if_present, try_remove_dir,
+};
+use crate::error::{Error, Result};
+use crate::opts::{DirCacheOpts, Encoding, GenerationOpt, MemPullOpt, MemPushOpt};
+use crate::time::{duration_from_nano_string, unix_time_now};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use crate::disk::{ensure_dir, ensure_removed_file, read_all_in_dir, read_raw_if_present, read_subdirs, try_remove_dir};
-use crate::error::{Result, Error};
-use crate::opts::{Encoding, GenerationOpt, MemPullOpt, MemPushOpt};
-use crate::time::{duration_from_nano_string, unix_time_now};
 
-pub mod error;
 mod disk;
+pub mod error;
 pub mod opts;
 mod time;
 
 const MANIFEST_VERSION: u64 = 1;
 const MANIFEST_FILE: &str = "manifest.csv";
+
+pub struct DirCache {
+    inner: DirCacheInner,
+    opts: DirCacheOpts,
+}
+
+impl DirCache {
+    #[inline]
+    pub fn opts(&self) -> &DirCacheOpts {
+        &self.opts
+    }
+
+    #[inline]
+    pub fn get(&mut self, key: &Path) -> Result<Option<Cow<[u8]>>> {
+        self.inner.get_opt(key, self.opts.mem_pull_opt)
+    }
+
+    #[inline]
+    pub fn get_opt(&mut self, key: &Path, mem_pull_opt: MemPullOpt) -> Result<Option<Cow<[u8]>>> {
+        self.inner.get_opt(key, mem_pull_opt)
+    }
+
+    #[inline]
+    pub fn get_or_insert<
+        E: Into<Box<dyn std::error::Error>>,
+        F: FnOnce() -> core::result::Result<Vec<u8>, E>,
+    >(
+        &mut self,
+        key: &Path,
+        insert_with: F,
+    ) -> Result<Cow<[u8]>> {
+        self.inner.get_or_insert_opt(
+            key,
+            insert_with,
+            self.opts.mem_pull_opt,
+            self.opts.mem_push_opt,
+            self.opts.generation_opt,
+        )
+    }
+
+    #[inline]
+    pub fn get_or_insert_opt<
+        E: Into<Box<dyn std::error::Error>>,
+        F: FnOnce() -> core::result::Result<Vec<u8>, E>,
+    >(
+        &mut self,
+        key: &Path,
+        insert_with: F,
+        opts: DirCacheOpts,
+    ) -> Result<Cow<[u8]>> {
+        self.inner.get_or_insert_opt(
+            key,
+            insert_with,
+            opts.mem_pull_opt,
+            opts.mem_push_opt,
+            opts.generation_opt,
+        )
+    }
+
+    #[inline]
+    pub fn insert(&mut self, key: &Path, content: Vec<u8>) -> Result<()> {
+        self.inner.insert_opt(
+            key,
+            content,
+            self.opts.mem_push_opt,
+            self.opts.generation_opt,
+        )
+    }
+
+    #[inline]
+    pub fn insert_opt(&mut self, key: &Path, content: Vec<u8>, opts: DirCacheOpts) -> Result<()> {
+        self.inner
+            .insert_opt(key, content, opts.mem_push_opt, opts.generation_opt)
+    }
+
+    #[inline]
+    pub fn remove(&mut self, key: &Path) -> Result<bool> {
+        self.inner.remove(key)
+    }
+}
 
 pub struct DirCacheInner {
     version: u64,
@@ -23,7 +106,7 @@ pub struct DirCacheInner {
 }
 
 impl DirCacheInner {
-    pub fn get_opt(&mut self, key: &Path, mem_pull_opt: MemPullOpt) -> Result<Option<Cow<[u8]>>> {
+    fn get_opt(&mut self, key: &Path, mem_pull_opt: MemPullOpt) -> Result<Option<Cow<[u8]>>> {
         let Some(val) = self.store.get_mut(key) else {
             return Ok(None);
         };
@@ -31,8 +114,9 @@ impl DirCacheInner {
         let store = if let Some(in_mem) = val_ref_in_mem {
             return Ok(Some(Cow::Borrowed(in_mem.content.as_slice())));
         } else {
-            let val = read_raw_if_present(key)?
-                .ok_or_else(|| Error::ReadContent("No file present on disk where expected", None))?;
+            let val = read_raw_if_present(key)?.ok_or_else(|| {
+                Error::ReadContent("No file present on disk where expected", None)
+            })?;
             if matches!(mem_pull_opt, MemPullOpt::DontKeepInMemoryOnRead) {
                 return Ok(Some(Cow::Owned(val)));
             }
@@ -42,13 +126,25 @@ impl DirCacheInner {
             committed: true,
             content: store,
         });
-        Ok(Some(Cow::Borrowed(val_ref_in_mem.as_ref().unwrap().content.as_slice())))
+        Ok(Some(Cow::Borrowed(
+            val_ref_in_mem.as_ref().unwrap().content.as_slice(),
+        )))
     }
 
-    pub fn get_or_insert_opt<E: Into<Box<dyn std::error::Error>>,F: FnOnce() -> core::result::Result<Vec<u8>, E>>(&mut self, key: &Path, insert_with: F, mem_pull_opt: MemPullOpt, mem_push_opt: MemPushOpt, generation_opt: GenerationOpt) -> Result<Cow<[u8]>> {
+    fn get_or_insert_opt<
+        E: Into<Box<dyn std::error::Error>>,
+        F: FnOnce() -> core::result::Result<Vec<u8>, E>,
+    >(
+        &mut self,
+        key: &Path,
+        insert_with: F,
+        mem_pull_opt: MemPullOpt,
+        mem_push_opt: MemPushOpt,
+        generation_opt: GenerationOpt,
+    ) -> Result<Cow<[u8]>> {
         // Dumb borrow checker, going to end up here on an if let https://blog.rust-lang.org/inside-rust/2023/10/06/polonius-update.html
         if self.store.contains_key(key) {
-            return Ok(self.get_opt(key, mem_pull_opt)?.unwrap())
+            return Ok(self.get_opt(key, mem_pull_opt)?.unwrap());
         }
         let val = match insert_with() {
             Ok(val) => val,
@@ -63,12 +159,24 @@ impl DirCacheInner {
         Ok(self.get_opt(key, mem_pull_opt)?.unwrap())
     }
 
-    pub fn insert_opt(&mut self, key: &Path, content: Vec<u8>, mem_push_opt: MemPushOpt, generation_opt: GenerationOpt) -> Result<()> {
+    fn insert_opt(
+        &mut self,
+        key: &Path,
+        content: Vec<u8>,
+        mem_push_opt: MemPushOpt,
+        generation_opt: GenerationOpt,
+    ) -> Result<()> {
         // Borrow checker strikes again
         let path = self.base.join(key);
         if self.store.contains_key(key) {
             let existing = self.store.get_mut(key).unwrap();
-            Self::run_dir_cache_entry_write(existing, &path, content, mem_push_opt, generation_opt)?;
+            Self::run_dir_cache_entry_write(
+                existing,
+                &path,
+                content,
+                mem_push_opt,
+                generation_opt,
+            )?;
         } else {
             let mut dc = DirCacheEntry::new();
             Self::run_dir_cache_entry_write(&mut dc, &path, content, mem_push_opt, generation_opt)?;
@@ -77,7 +185,23 @@ impl DirCacheInner {
         Ok(())
     }
 
-    fn run_dir_cache_entry_write(dc: &mut DirCacheEntry, path: &Path, content: Vec<u8>, mem_push_opt: MemPushOpt, generation_opt: GenerationOpt) -> Result<()> {
+    fn remove(&mut self, key: &Path) -> Result<bool> {
+        let Some(_prev) = self.store.remove(key) else {
+            return Ok(false);
+        };
+        // Can't remove_dir_all because of potential subdirs
+        let path = self.base.join(key);
+        try_remove_dir(&path)?;
+        Ok(true)
+    }
+
+    fn run_dir_cache_entry_write(
+        dc: &mut DirCacheEntry,
+        path: &Path,
+        content: Vec<u8>,
+        mem_push_opt: MemPushOpt,
+        generation_opt: GenerationOpt,
+    ) -> Result<()> {
         match mem_push_opt {
             MemPushOpt::RetainAndWrite => {
                 dc.generational_write(&path, &content, generation_opt.max_generations.get())?;
@@ -100,27 +224,29 @@ impl DirCacheInner {
         Ok(())
     }
 
-    pub fn remove(&mut self, key: &Path) -> Result<bool> {
-        let Some(prev) = self.store.remove(key) else {
-            return Ok(false);
-        };
-        // Can't remove_dir_all because of potential subdirs
-        let path = self.base.join(key);
-        try_remove_dir(&path)?;
-        Ok(true)
-    }
-
-    pub fn sync_to_disk(&mut self, mem_push_opt: MemPushOpt, generation_opt: GenerationOpt) -> Result<()> {
+    fn sync_to_disk(
+        &mut self,
+        mem_push_opt: MemPushOpt,
+        generation_opt: GenerationOpt,
+    ) -> Result<()> {
         for (k, v) in &mut self.store {
             let dir = self.base.join(k);
             ensure_dir(&dir)?;
             let max_rem = generation_opt.max_generations.get() - 1;
-            v.dump_in_mem(&dir, matches!(mem_push_opt, MemPushOpt::RetainAndWrite), max_rem)?;
+            v.dump_in_mem(
+                &dir,
+                matches!(mem_push_opt, MemPushOpt::RetainAndWrite),
+                max_rem,
+            )?;
         }
         Ok(())
     }
 
-    pub fn read_from_disk(base: PathBuf, eager_load: bool, generation_opt: GenerationOpt) -> Result<Self> {
+    fn read_from_disk(
+        base: PathBuf,
+        eager_load: bool,
+        generation_opt: GenerationOpt,
+    ) -> Result<Self> {
         let mut check_next = VecDeque::new();
         check_next.push_front(base.clone());
         let mut store = HashMap::new();
@@ -144,7 +270,7 @@ impl DirCacheInner {
     }
 }
 
-pub(crate) struct DirCacheEntry {
+struct DirCacheEntry {
     in_mem: Option<InMemEntry>,
     on_disk: VecDeque<ContentGeneration>,
     last_updated: Duration,
@@ -160,7 +286,13 @@ impl DirCacheEntry {
         }
     }
 
-    fn insert_new_data(&mut self, path: &Path, data: Vec<u8>, mem_push_opt: MemPushOpt, generation_opt: GenerationOpt) -> Result<()> {
+    fn insert_new_data(
+        &mut self,
+        path: &Path,
+        data: Vec<u8>,
+        mem_push_opt: MemPushOpt,
+        generation_opt: GenerationOpt,
+    ) -> Result<()> {
         match mem_push_opt {
             MemPushOpt::RetainAndWrite => {
                 self.generational_write(path, &data, generation_opt.max_generations.get())?;
@@ -208,10 +340,18 @@ impl DirCacheEntry {
         Ok(())
     }
 
-    fn read_from_dir(base: &Path, eager_load: bool, generation_opt: GenerationOpt) -> Result<Option<Self>> {
-        let (version, entries) = Self::read_metadata(base)?;
+    fn read_from_dir(
+        base: &Path,
+        eager_load: bool,
+        generation_opt: GenerationOpt,
+    ) -> Result<Option<Self>> {
+        let Some((version, entries)) = Self::read_metadata(base)? else {
+            return Ok(None);
+        };
         if version != MANIFEST_VERSION {
-            return Err(Error::ParseManifest(format!("Version mismatch, want={MANIFEST_VERSION}, got={version}")));
+            return Err(Error::ParseManifest(format!(
+                "Version mismatch, want={MANIFEST_VERSION}, got={version}"
+            )));
         }
         let now = unix_time_now()?;
         let mut in_mem = None;
@@ -233,12 +373,8 @@ impl DirCacheEntry {
                         content,
                     })
                 }
-
             }
-            on_disk.push_back(ContentGeneration {
-                encoding: enc,
-                age,
-            });
+            on_disk.push_back(ContentGeneration { encoding: enc, age });
         }
         if let Some(last_updated) = last_updated {
             Ok(Some(Self {
@@ -249,31 +385,39 @@ impl DirCacheEntry {
         } else {
             Ok(None)
         }
-
     }
 
-    fn read_metadata(base: &Path) -> Result<(u64, VecDeque<(Duration, Encoding)>)> {
-        let content = std::fs::read_to_string(base.join(MANIFEST_FILE))
-            .map_err(|e| Error::ReadContent("Failed to read manifest file", Some(e)))?;
+    fn read_metadata(base: &Path) -> Result<Option<(u64, VecDeque<(Duration, Encoding)>)>> {
+        let Some(content) = read_metadata_if_present(&base.join(MANIFEST_FILE))? else {
+            return Ok(None);
+        };
         let mut lines = content.lines();
         let Some(first) = lines.next() else {
-            return Err(Error::ParseMetadata(format!("Manifest at {base:?} was empty")));
+            return Err(Error::ParseMetadata(format!(
+                "Manifest at {base:?} was empty"
+            )));
         };
-        let version: u64 = first.parse()
-            .map_err(|_| Error::ParseMetadata(format!("Failed to parse version from metadata at {base:?}")))?;
+        let version: u64 = first.parse().map_err(|_| {
+            Error::ParseMetadata(format!("Failed to parse version from metadata at {base:?}"))
+        })?;
         let mut generations = VecDeque::new();
         for line in lines {
-            let (age_nanos_raw, encoding_raw) = line.split_once(',')
-                .ok_or_else(|| Error::ParseMetadata(format!("Metadata was not comma separated at {base:?}")))?;
+            let (age_nanos_raw, encoding_raw) = line.split_once(',').ok_or_else(|| {
+                Error::ParseMetadata(format!("Metadata was not comma separated at {base:?}"))
+            })?;
             let age = duration_from_nano_string(age_nanos_raw)?;
             let encoding = Encoding::deserialize(encoding_raw)?;
             generations.push_front((age, encoding));
         }
-        Ok((version, generations))
-
+        Ok(Some((version, generations)))
     }
 
-    fn dump_in_mem(&mut self, base: &Path, keep_in_mem: bool, keep_generations: usize) -> Result<()> {
+    fn dump_in_mem(
+        &mut self,
+        base: &Path,
+        keep_in_mem: bool,
+        keep_generations: usize,
+    ) -> Result<()> {
         let max_rem = keep_generations;
         if let Some(in_mem) = &mut self.in_mem {
             while self.on_disk.len() > max_rem {
@@ -287,8 +431,9 @@ impl DirCacheEntry {
                     let n1 = base.join(format!("gen_{ind}"));
                     let n2 = base.join(format!("get_{}", ind + 1));
                     gen_queue.push_front(gen);
-                    std::fs::rename(&n1, &n2)
-                        .map_err(|e| Error::WriteContent("Failed to migrate generations", Some(e)))?;
+                    std::fs::rename(&n1, &n2).map_err(|e| {
+                        Error::WriteContent("Failed to migrate generations", Some(e))
+                    })?;
                 }
                 let last_update = unix_time_now()?;
                 let next_gen = ContentGeneration {
@@ -313,7 +458,11 @@ impl DirCacheEntry {
     fn dump_metadata(&self, base: &Path) -> Result<()> {
         let mut metadata = String::new();
         for gen in &self.on_disk {
-            let _ = metadata.write_fmt(format_args!("{},{}\n", gen.age.as_nanos(), gen.encoding.serialize()));
+            let _ = metadata.write_fmt(format_args!(
+                "{},{}\n",
+                gen.age.as_nanos(),
+                gen.encoding.serialize()
+            ));
         }
         std::fs::write(base.join(MANIFEST_FILE), metadata)
             .map_err(|e| Error::WriteContent("Failed to write manifest", Some(e)))?;
@@ -321,20 +470,20 @@ impl DirCacheEntry {
     }
 }
 
-pub(crate) struct InMemEntry {
+struct InMemEntry {
     committed: bool,
     content: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ContentGeneration {
-    pub(crate) encoding: Encoding,
-    pub(crate) age: Duration,
+struct ContentGeneration {
+    encoding: Encoding,
+    age: Duration,
 }
 
 impl ContentGeneration {
     #[inline]
-    pub(crate) fn too_old(&self, ttl: Duration, now: Duration) -> bool {
+    fn too_old(&self, ttl: Duration, now: Duration) -> bool {
         self.age.saturating_add(ttl) <= now
     }
 }
