@@ -11,25 +11,46 @@ pub struct DirCacheOpts {
     pub(crate) mem_pull_opt: MemPullOpt,
     pub(crate) mem_push_opt: MemPushOpt,
     pub(crate) generation_opt: GenerationOpt,
+    pub(crate) sync_opt: SyncOpt,
 }
 
 impl DirCacheOpts {
+    #[must_use]
+    pub const fn new(
+        mem_pull_opt: MemPullOpt,
+        mem_push_opt: MemPushOpt,
+        generation_opt: GenerationOpt,
+        sync_opt: SyncOpt,
+    ) -> Self {
+        Self {
+            mem_pull_opt,
+            mem_push_opt,
+            generation_opt,
+            sync_opt,
+        }
+    }
 
     #[must_use]
-    pub fn with_mem_pull_opt(mut self, mem_pull_opt: MemPullOpt) -> Self {
+    pub const fn with_mem_pull_opt(mut self, mem_pull_opt: MemPullOpt) -> Self {
         self.mem_pull_opt = mem_pull_opt;
         self
     }
 
     #[must_use]
-    pub fn with_mem_push_opt(mut self, mem_push_opt: MemPushOpt) -> Self {
+    pub const fn with_mem_push_opt(mut self, mem_push_opt: MemPushOpt) -> Self {
         self.mem_push_opt = mem_push_opt;
         self
     }
 
     #[must_use]
-    pub fn with_generation_opt(mut self, generation_opt: GenerationOpt) -> Self {
+    pub const fn with_generation_opt(mut self, generation_opt: GenerationOpt) -> Self {
         self.generation_opt = generation_opt;
+        self
+    }
+
+    #[must_use]
+    pub const fn sync_opt(mut self, sync_opt: SyncOpt) -> Self {
+        self.sync_opt = sync_opt;
         self
     }
 
@@ -180,4 +201,11 @@ impl Encoding {
             ))),
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, Default)]
+pub enum SyncOpt {
+    SyncOnDrop,
+    #[default]
+    ManualSync,
 }

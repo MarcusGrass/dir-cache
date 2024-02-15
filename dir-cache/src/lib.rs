@@ -3,7 +3,7 @@ use crate::disk::{
     read_raw_if_present, try_remove_dir,
 };
 use crate::error::{Error, Result};
-use crate::opts::{DirCacheOpts, Encoding, GenerationOpt, MemPullOpt, MemPushOpt};
+use crate::opts::{DirCacheOpts, Encoding, GenerationOpt, MemPullOpt, MemPushOpt, SyncOpt};
 use crate::time::{duration_from_nano_string, unix_time_now};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -17,7 +17,7 @@ pub mod opts;
 mod time;
 
 const MANIFEST_VERSION: u64 = 1;
-const MANIFEST_FILE: &str = "manifest.csv";
+const MANIFEST_FILE: &str = "manifest.txt";
 
 pub struct DirCache {
     inner: DirCacheInner,
@@ -97,10 +97,31 @@ impl DirCache {
     pub fn remove(&mut self, key: &Path) -> Result<bool> {
         self.inner.remove(key)
     }
+
+    #[inline]
+    pub fn sync(&mut self) -> Result<()> {
+        self.inner
+            .sync_to_disk(self.opts.mem_push_opt, self.opts.generation_opt)
+    }
+
+    #[inline]
+    pub fn sync_opt(&mut self, opts: DirCacheOpts) -> Result<()> {
+        self.inner
+            .sync_to_disk(opts.mem_push_opt, opts.generation_opt)
+    }
+}
+
+impl Drop for DirCache {
+    fn drop(&mut self) {
+        if matches!(self.opts.sync_opt, SyncOpt::SyncOnDrop) {
+            let _ = self
+                .inner
+                .sync_to_disk(self.opts.mem_push_opt, self.opts.generation_opt);
+        }
+    }
 }
 
 struct DirCacheInner {
-    version: u64,
     base: PathBuf,
     store: HashMap<PathBuf, DirCacheEntry>,
 }
@@ -263,7 +284,6 @@ impl DirCacheInner {
             }
         }
         Ok(Self {
-            version: MANIFEST_VERSION,
             base,
             store,
         })

@@ -1,5 +1,4 @@
 use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
 
 pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Debug)]

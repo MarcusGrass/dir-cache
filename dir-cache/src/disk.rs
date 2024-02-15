@@ -1,19 +1,13 @@
 use crate::error::{Error, Result};
-use std::collections::VecDeque;
-use std::fs::{DirEntry, Metadata};
+use std::fs::{Metadata};
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) enum FileObjectExists {
     No,
     AsDir,
     AsFile,
-}
-
-pub(crate) struct ContentItems {
-    manifest_file: PathBuf,
-    generation_files: VecDeque<PathBuf>,
 }
 
 pub(crate) fn read_all_in_dir<F: FnMut(&Path, &Metadata) -> Result<()>>(
@@ -34,42 +28,10 @@ pub(crate) fn read_all_in_dir<F: FnMut(&Path, &Metadata) -> Result<()>>(
 }
 
 #[inline]
-pub(crate) fn file_name_utf8(path: &Path) -> Result<&str> {
-    let file_name = path
-        .to_str()
-        .ok_or_else(|| Error::ReadContent("File has no utf8 file name", None))?;
-    Ok(file_name)
-}
-
-pub(crate) fn expect_dir_at(path: &Path) -> Result<()> {
-    let res = exists(path)?;
-    match res {
-        FileObjectExists::AsDir => Ok(()),
-        FileObjectExists::No => Err(Error::ReadContent("Failed expect dir, found nothing", None)),
-        FileObjectExists::AsFile => Err(Error::ReadContent("Failed expect dir, found file", None)),
-    }
-}
-#[inline]
 pub(crate) fn ensure_dir(path: &Path) -> Result<()> {
     std::fs::create_dir_all(path)
         .map_err(|e| Error::WriteContent("Failed to ensure dir", Some(e)))?;
     Ok(())
-}
-
-#[inline]
-pub(crate) fn create_dir_if_missing(path: &Path) -> Result<()> {
-    // Very inefficient, could use `create_dir_all`, but then there's the potential to
-    // create extra dirs where they aren't wanted.
-    match exists(path)? {
-        FileObjectExists::No => std::fs::create_dir(path).map_err(|e| {
-            Error::WriteContent("Failed create dir if missing, failed create", Some(e))
-        }),
-        FileObjectExists::AsDir => Ok(()),
-        FileObjectExists::AsFile => Err(Error::ReadContent(
-            "Failed create dir, expected nothing or an already existing dir, found a file",
-            None,
-        )),
-    }
 }
 
 pub(crate) fn exists(path: &Path) -> Result<FileObjectExists> {
