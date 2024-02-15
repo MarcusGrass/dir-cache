@@ -7,13 +7,14 @@ pub enum Error {
     UnexpectedDirCacheDoesNotExist,
     ReadManifest(std::io::Error),
     ParseManifest(String),
+    ParseMetadata(String),
     SystemTime(std::time::SystemTimeError),
     SyncErr(Vec<(String, Error)>),
     BadManifestPath(String),
     ManifestStringAppendErr(std::fmt::Error),
-    WriteContent(PathBuf, std::io::Error),
-    ReadContent(PathBuf, std::io::Error),
-    DeleteContent(PathBuf, std::io::Error),
+    WriteContent(&'static str, Option<std::io::Error>),
+    ReadContent(&'static str, Option<std::io::Error>),
+    DeleteContent(&'static str, Option<std::io::Error>),
     InsertWithErr(Box<dyn std::error::Error>),
     CacheInsertViolation(&'static str),
 }
@@ -39,13 +40,13 @@ impl Display for Error {
                 f.write_fmt(format_args!("Failed to append to manifest string: {e}"))
             }
             Error::WriteContent(p, e) => f.write_fmt(format_args!(
-                "Failed to write content to disk at {p:?}: {e}"
+                "Failed to write content to disk at {p:?}, source: {e:?}"
             )),
             Error::ReadContent(p, e) => f.write_fmt(format_args!(
-                "Failed to read content from disk at {p:?}: {e}"
+                "Failed to read content from disk at {p:?}, source: {e:?}"
             )),
             Error::DeleteContent(p, e) => f.write_fmt(format_args!(
-                "Failed to delete content from disk at {p:?}: {e}"
+                "Failed to delete content from disk at {p:?}, source: {e:?}"
             )),
             Error::ParseManifest(e) => {
                 f.write_fmt(format_args!("Failed to parse manifest, cause: {e}"))
@@ -57,6 +58,7 @@ impl Display for Error {
             Error::CacheInsertViolation(opt) => {
                 f.write_fmt(format_args!("Cache insert violation: {opt}"))
             }
+            Error::ParseMetadata(s) => f.write_fmt(format_args!("Failed to parse metadata: '{s}'")),
         }
     }
 }

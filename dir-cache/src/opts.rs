@@ -1,7 +1,7 @@
-use crate::error::Error;
-use crate::{DirCache, Manifest, MANIFEST_FILE_NAME, MANIFEST_VERSION};
-use std::collections::HashMap;
-use std::io::ErrorKind;
+use crate::error::{Error, Result};
+use crate::{DirCacheInner};
+use std::fmt::Display;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ pub struct CacheOptionsBuilder {
     sync_opt: Option<SyncErrorOpt>,
     flush_opt: Option<MemPushOpt>,
     pull_opt: Option<MemPullOpt>,
-    expiration_opt: Option<ExpirationOpt>,
+    generation_opt: Option<GenerationOpt>,
 }
 
 impl CacheOptionsBuilder {
@@ -24,7 +24,7 @@ impl CacheOptionsBuilder {
             sync_opt: None,
             flush_opt: None,
             pull_opt: None,
-            expiration_opt: None,
+            generation_opt: None,
         }
     }
 
@@ -53,78 +53,8 @@ impl CacheOptionsBuilder {
         self
     }
 
-    pub fn open(self, path: PathBuf) -> crate::error::Result<DirCache> {
-        let open = self.cache_open_opt.unwrap_or_default();
-        let expect_manifest = path.join(MANIFEST_FILE_NAME);
-        let ttl = self.expiration_opt.unwrap_or(ExpirationOpt::DoNothing);
-        let manifest = match open.dir_open {
-            DirOpen::OnlyIfExists => match std::fs::read_to_string(expect_manifest) {
-                Ok(raw) => Manifest::deserialize(
-                    &path,
-                    &raw,
-                    MANIFEST_VERSION,
-                    open.eager_load_to_ram,
-                    ttl,
-                )?,
-                Err(e) if e.kind() == ErrorKind::NotFound => {
-                    return Err(Error::UnexpectedDirCacheDoesNotExist);
-                }
-                Err(e) => {
-                    return Err(Error::ReadManifest(e));
-                }
-            },
-            DirOpen::CreateIfMissing => match std::fs::read_to_string(expect_manifest) {
-                Ok(raw) => Manifest::deserialize(
-                    &path,
-                    &raw,
-                    MANIFEST_VERSION,
-                    open.eager_load_to_ram,
-                    ttl,
-                )?,
-                Err(e) if e.kind() == ErrorKind::NotFound => match std::fs::metadata(&path) {
-                    Ok(md) => {
-                        if !md.is_dir() {
-                            return Err(Error::BadManifestPath(format!(
-                                "Path {path:?} is not a dir"
-                            )));
-                        }
-                        Manifest {
-                            version: MANIFEST_VERSION,
-                            store: HashMap::default(),
-                        }
-                    }
-                    Err(e) if e.kind() == ErrorKind::NotFound => {
-                        std::fs::create_dir(&path).map_err(|e| {
-                            Error::BadManifestPath(format!(
-                                "Could not create dir-cache at {path:?}: {e}"
-                            ))
-                        })?;
-                        Manifest {
-                            version: MANIFEST_VERSION,
-                            store: HashMap::default(),
-                        }
-                    }
-                    Err(e) => {
-                        return Err(Error::BadManifestPath(format!(
-                            "Could not read dir-cache metadata {e}"
-                        )));
-                    }
-                },
-                Err(e) => {
-                    return Err(Error::ReadManifest(e));
-                }
-            },
-        };
-        Ok(DirCache {
-            path,
-            insert_opt: self.cache_insert_opt.unwrap_or_default(),
-            manifest,
-            write_opt: self.cache_write_opt.unwrap_or_default(),
-            sync_opt: self.sync_opt.unwrap_or_default(),
-            push_opt: self.flush_opt.unwrap_or_default(),
-            pull_opt: self.pull_opt.unwrap_or_default(),
-            expiration_opt: Default::default(),
-        })
+    pub fn open(self, path: PathBuf) -> crate::error::Result<DirCacheInner> {
+        todo!()
     }
 }
 
@@ -166,7 +96,7 @@ pub enum CacheInsertOption {
 pub enum ManifestWriteOpt {
     /// Only write to disk manually
     ManualOnly,
-    /// Only write to disk manually or when the [`DirCache`] is dropped
+    /// Only write to disk manually or when the [`DirCacheInner`] is dropped
     AutoOnDrop,
     /// Write to disk immediately
     #[default]
@@ -177,10 +107,12 @@ pub enum ManifestWriteOpt {
 #[derive(Debug, Copy, Clone, Default)]
 pub enum MemPushOpt {
     /// Keep the data in memory after writing
-    RetainOnWrite,
+    RetainAndWrite,
+    /// Write the data into ram, don't automatically sync to disk
+    MemoryOnly,
     /// Remove the data from memory after writing
     #[default]
-    DumpOnWrite,
+    PassthroughWrite,
 }
 
 /// Memory pull options, determines whether data should be cached in RAM when pulled from disk
@@ -201,6 +133,17 @@ pub enum ExpirationOpt {
     DeleteAfter(Duration),
 }
 
+impl ExpirationOpt {
+    #[inline]
+    pub(crate) fn as_dur(self) -> Duration {
+        match self {
+            // End of all times
+            ExpirationOpt::DoNothing => Duration::MAX,
+            ExpirationOpt::DeleteAfter(dur) => dur,
+        }
+    }
+}
+
 /// If an error is encountered when syncing the full dir-cache
 #[derive(Debug, Copy, Clone, Default)]
 pub enum SyncErrorOpt {
@@ -210,3 +153,48 @@ pub enum SyncErrorOpt {
     #[default]
     BestAttempt,
 }
+
+/// How to treat generations of data
+#[derive(Debug, Copy, Clone)]
+pub struct GenerationOpt {
+    /// How many old copies to keep
+    pub(crate) max_generations: NonZeroUsize,
+    /// How to encode older generations
+    pub(crate) old_gen_encoding: Encoding,
+    /// When a value in any generation is expired
+    pub(crate) expiration: ExpirationOpt,
+}
+
+impl Default for GenerationOpt {
+    #[inline]
+    fn default() -> Self {
+        Self::new(NonZeroUsize::MIN, Encoding::Plain, ExpirationOpt::DoNothing)
+    }
+}
+
+impl GenerationOpt {
+    pub const fn new(max_generations: NonZeroUsize, old_gen_encoding: Encoding, expiration: ExpirationOpt) -> Self {
+        Self { max_generations, old_gen_encoding, expiration }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Encoding {
+    Plain,
+}
+
+impl Encoding {
+    pub(crate) fn serialize(&self) -> impl Display {
+        match self {
+            Encoding::Plain => 0u8,
+        }
+    }
+
+    pub(crate) fn deserialize(s: &str) -> Result<Self> {
+        match s {
+            "0" => Ok(Self::Plain),
+            v => Err(Error::ParseMetadata(format!("Failed to parse encoding from {v}")))
+        }
+    }
+}
+
