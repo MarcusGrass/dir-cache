@@ -49,7 +49,7 @@ impl DirCacheOpts {
     }
 
     #[must_use]
-    pub const fn sync_opt(mut self, sync_opt: SyncOpt) -> Self {
+    pub const fn with_sync_opt(mut self, sync_opt: SyncOpt) -> Self {
         self.sync_opt = sync_opt;
         self
     }
@@ -203,9 +203,12 @@ impl Encoding {
     }
 }
 
+/// Whether syncing should be done on drop
 #[derive(Debug, Copy, Clone, Default)]
 pub enum SyncOpt {
+    /// Sync when dropped (syncing can still be done manually)
     SyncOnDrop,
+    /// Only sync manually
     #[default]
     ManualSync,
 }

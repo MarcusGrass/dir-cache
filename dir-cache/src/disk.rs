@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
-use std::fs::{Metadata};
+use std::fs::Metadata;
 use std::io::ErrorKind;
-use std::path::{Path};
+use std::path::Path;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) enum FileObjectExists {

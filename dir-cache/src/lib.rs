@@ -32,12 +32,14 @@ impl DirCache {
 
     #[inline]
     pub fn get(&mut self, key: &Path) -> Result<Option<Cow<[u8]>>> {
-        self.inner.get_opt(key, self.opts.mem_pull_opt, self.opts.generation_opt)
+        self.inner
+            .get_opt(key, self.opts.mem_pull_opt, self.opts.generation_opt)
     }
 
     #[inline]
     pub fn get_opt(&mut self, key: &Path, opts: DirCacheOpts) -> Result<Option<Cow<[u8]>>> {
-        self.inner.get_opt(key, opts.mem_pull_opt, opts.generation_opt)
+        self.inner
+            .get_opt(key, opts.mem_pull_opt, opts.generation_opt)
     }
 
     #[inline]
@@ -127,7 +129,12 @@ struct DirCacheInner {
 }
 
 impl DirCacheInner {
-    fn get_opt(&mut self, key: &Path, mem_pull_opt: MemPullOpt, generation_opt: GenerationOpt) -> Result<Option<Cow<[u8]>>> {
+    fn get_opt(
+        &mut self,
+        key: &Path,
+        mem_pull_opt: MemPullOpt,
+        generation_opt: GenerationOpt,
+    ) -> Result<Option<Cow<[u8]>>> {
         // Borrow checker...
         if !self.store.contains_key(key) {
             return Ok(None);
@@ -137,13 +144,18 @@ impl DirCacheInner {
         let path = self.base.join(key);
         // To be able to remove this key, the below Cow borrow-return needs a separate borrow lasting
         // for the remainder of this function, so here we are.
-        if val.last_updated.saturating_add(generation_opt.expiration.as_dur()) <= now {
+        if val
+            .last_updated
+            .saturating_add(generation_opt.expiration.as_dur())
+            <= now
+        {
             // The value in memory should be younger or equal to the first value on disk
             // if it's too old, this key should be cleaned
             try_remove_dir(&path)?;
             self.store.remove(key);
             return Ok(None);
         }
+
         if let Some(f) = val.on_disk.get(0) {
             if f.age.saturating_add(generation_opt.expiration.as_dur()) <= now {
                 // No value in mem, also first value on disk is too old, clean up
@@ -151,7 +163,7 @@ impl DirCacheInner {
                 self.store.remove(key);
                 return Ok(None);
             }
-        } else {
+        } else if val.in_mem.is_none() {
             // No value in mem, no values on disk, clean
             try_remove_dir(&path)?;
             self.store.remove(key);
@@ -162,7 +174,8 @@ impl DirCacheInner {
         let store = if let Some(in_mem) = val_ref_in_mem {
             return Ok(Some(Cow::Borrowed(in_mem.content.as_slice())));
         } else {
-            let val = read_raw_if_present(key)?.ok_or_else(|| {
+            let file_path = path.join("gen_0");
+            let val = read_raw_if_present(&file_path)?.ok_or_else(|| {
                 Error::ReadContent("No file present on disk where expected", None)
             })?;
             if matches!(mem_pull_opt, MemPullOpt::DontKeepInMemoryOnRead) {
@@ -202,6 +215,7 @@ impl DirCacheInner {
         };
         let mut entry = DirCacheEntry::new();
         let use_path = self.base.join(key);
+        ensure_dir(&use_path)?;
         entry.insert_new_data(&use_path, val, mem_push_opt, generation_opt)?;
         self.store.insert(key.to_path_buf(), entry);
         Ok(self.get_opt(key, mem_pull_opt, generation_opt)?.unwrap())
@@ -252,6 +266,7 @@ impl DirCacheInner {
     ) -> Result<()> {
         match mem_push_opt {
             MemPushOpt::RetainAndWrite => {
+                ensure_dir(path)?;
                 dc.generational_write(&path, &content, generation_opt.max_generations.get())?;
                 dc.in_mem = Some(InMemEntry {
                     committed: true,
@@ -266,6 +281,7 @@ impl DirCacheInner {
             }
             MemPushOpt::PassthroughWrite => {
                 dc.in_mem = None;
+                ensure_dir(path)?;
                 dc.generational_write(&path, &content, generation_opt.max_generations.get())?;
             }
         }
@@ -310,10 +326,7 @@ impl DirCacheInner {
                 store.insert(next, de);
             }
         }
-        Ok(Self {
-            base,
-            store,
-        })
+        Ok(Self { base, store })
     }
 }
 
@@ -384,6 +397,7 @@ impl DirCacheEntry {
         self.last_updated = last_update;
         std::fs::write(base.join("gen_0"), data)
             .map_err(|e| Error::WriteContent("Failed to write new generation", Some(e)))?;
+        self.dump_metadata(base)?;
         Ok(())
     }
 
