@@ -5,7 +5,7 @@ use dir_cache::opts::{
 };
 use std::collections::HashSet;
 use std::convert::Infallible;
-use std::io::{ErrorKind};
+use std::io::ErrorKind;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -86,6 +86,23 @@ fn create_if_missing_will_create() {
         )
         .unwrap();
     assert_dir_at(&doesnt_exist);
+}
+
+#[test]
+fn open_on_existing_file_fails() {
+    let tmp = tempdir::TempDir::new("create_if_missing_will_create").unwrap();
+    let bad_file = tmp.path().join("badfile");
+    std::fs::write(&bad_file, "grenade").unwrap();
+    let expect_err = DirCacheOpts::default().open(
+        &bad_file,
+        CacheOpenOptions::new(DirOpen::OnlyIfExists, true),
+    );
+    assert!(matches!(expect_err, Err(Error::Open(_))));
+    let expect_err = DirCacheOpts::default().open(
+        &bad_file,
+        CacheOpenOptions::new(DirOpen::CreateIfMissing, true),
+    );
+    assert!(matches!(expect_err, Err(Error::WriteContent(_, _))));
 }
 
 #[test]
@@ -369,6 +386,46 @@ fn write_generational_lz4() {
     let content = std::fs::read(&expect_gen3).unwrap();
     assert_eq!(encode(b"gen3"), content);
     assert!(files.is_empty());
+}
+
+#[test]
+fn tolerates_foreign_files() {
+    let tmp = tempdir::TempDir::new("tolerates_foreign_files").unwrap();
+    assert_empty_dir_at(tmp.path());
+    let mut dc = DirCacheOpts::default()
+        .with_sync_opt(SyncOpt::SyncOnDrop)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    let my_key = dummy_key();
+    let my_content = dummy_content();
+    dc.insert(my_key, my_content.to_vec()).unwrap();
+    assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+    drop(dc);
+    let files = all_files_in(&tmp.path().join(my_key));
+    assert_eq!(2, files.len());
+    std::fs::write(
+        tmp.path().join(my_key).join("rogue_user_file"),
+        b"Rogue content!".to_vec(),
+    )
+    .unwrap();
+    let files = all_files_in(&tmp.path().join(my_key));
+    assert_eq!(3, files.len());
+    let mut dc = DirCacheOpts::default()
+        .with_sync_opt(SyncOpt::SyncOnDrop)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+    assert!(dc.remove(my_key).unwrap());
+    let files = all_files_in(&tmp.path().join(my_key));
+    assert_eq!(1, files.len());
+    let file = files.into_iter().next().unwrap();
+    assert!(file.ends_with("rogue_user_file"));
 }
 
 #[derive(Debug, Eq, PartialEq)]

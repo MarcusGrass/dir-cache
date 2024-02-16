@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::MANIFEST_FILE;
 use std::fs::Metadata;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -81,19 +82,27 @@ pub(crate) fn ensure_removed_file(path: &Path) -> Result<()> {
 }
 
 pub(crate) fn try_remove_dir(path: &Path) -> Result<()> {
-    let mut any_dirs = false;
+    let mut anything_left = false;
     if exists(path)? == FileObjectExists::No {
         return Ok(());
     }
     read_all_in_dir(path, |entry_path, entry_metadata| {
-        if entry_metadata.is_dir() {
-            any_dirs = true;
-        } else if entry_metadata.is_file() {
-            ensure_removed_file(entry_path)?
+        if entry_metadata.is_file() {
+            let f_name = entry_path.file_name().ok_or_else(|| {
+                Error::ReadContent("Entry to maybe remove has no file name", None)
+            })?;
+            // Try to be restrictive in what's removed
+            if let Some(valid_utf8) = f_name.to_str() {
+                if valid_utf8 == MANIFEST_FILE || valid_utf8.starts_with("gen_") {
+                    ensure_removed_file(entry_path)?;
+                    return Ok(());
+                }
+            }
         }
+        anything_left = true;
         Ok(())
     })?;
-    if !any_dirs {
+    if !anything_left {
         std::fs::remove_dir(path)
             .map_err(|e| Error::DeleteContent("Failed to remove dir", Some(e)))?;
     }
