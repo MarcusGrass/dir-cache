@@ -210,6 +210,28 @@ fn check_sync_on_drop() {
     assert_file_at(&tmp.path().join(my_key).join("manifest.txt"));
 }
 
+#[test]
+#[cfg(unix)]
+fn rejects_weird_paths() {
+    let tmp = tempdir::TempDir::new("rejects_weird_paths").unwrap();
+    assert_empty_dir_at(tmp.path());
+    let mut dc = DirCacheOpts::default()
+        .with_sync_opt(SyncOpt::SyncOnDrop)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    // Absolute path on unix, does not join properly
+    let opts = *dc.opts();
+    let unsafe_key = Path::new("/absolute");
+    assert!(matches!(dc.get(unsafe_key), Err(Error::DangerousKey(_))));
+    assert!(matches!(dc.get_opt(unsafe_key, opts), Err(Error::DangerousKey(_))));
+    assert!(matches!(dc.insert(unsafe_key, b"".to_vec()), Err(Error::DangerousKey(_))));
+    assert!(matches!(dc.insert_opt(unsafe_key, b"".to_vec(), opts), Err(Error::DangerousKey(_))));
+    assert!(matches!(dc.remove(unsafe_key), Err(Error::DangerousKey(_))));
+}
+
 #[derive(Debug, Eq, PartialEq)]
 enum ExpectedDiskObject {
     File,

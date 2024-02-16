@@ -10,11 +10,13 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use crate::path_util::reject_demonstrably_unsafe_key;
 
 mod disk;
 pub mod error;
 pub mod opts;
 mod time;
+mod path_util;
 
 const MANIFEST_VERSION: u64 = 1;
 const MANIFEST_FILE: &str = "manifest.txt";
@@ -32,12 +34,14 @@ impl DirCache {
 
     #[inline]
     pub fn get(&mut self, key: &Path) -> Result<Option<Cow<[u8]>>> {
+        reject_demonstrably_unsafe_key(key)?;
         self.inner
             .get_opt(key, self.opts.mem_pull_opt, self.opts.generation_opt)
     }
 
     #[inline]
     pub fn get_opt(&mut self, key: &Path, opts: DirCacheOpts) -> Result<Option<Cow<[u8]>>> {
+        reject_demonstrably_unsafe_key(key)?;
         self.inner
             .get_opt(key, opts.mem_pull_opt, opts.generation_opt)
     }
@@ -51,6 +55,7 @@ impl DirCache {
         key: &Path,
         insert_with: F,
     ) -> Result<Cow<[u8]>> {
+        reject_demonstrably_unsafe_key(key)?;
         self.inner.get_or_insert_opt(
             key,
             insert_with,
@@ -70,6 +75,7 @@ impl DirCache {
         insert_with: F,
         opts: DirCacheOpts,
     ) -> Result<Cow<[u8]>> {
+        reject_demonstrably_unsafe_key(key)?;
         self.inner.get_or_insert_opt(
             key,
             insert_with,
@@ -81,6 +87,7 @@ impl DirCache {
 
     #[inline]
     pub fn insert(&mut self, key: &Path, content: Vec<u8>) -> Result<()> {
+        reject_demonstrably_unsafe_key(key)?;
         self.inner.insert_opt(
             key,
             content,
@@ -91,12 +98,14 @@ impl DirCache {
 
     #[inline]
     pub fn insert_opt(&mut self, key: &Path, content: Vec<u8>, opts: DirCacheOpts) -> Result<()> {
+        reject_demonstrably_unsafe_key(key)?;
         self.inner
             .insert_opt(key, content, opts.mem_push_opt, opts.generation_opt)
     }
 
     #[inline]
     pub fn remove(&mut self, key: &Path) -> Result<bool> {
+        reject_demonstrably_unsafe_key(key)?;
         self.inner.remove(key)
     }
 

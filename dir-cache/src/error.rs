@@ -11,6 +11,7 @@ pub enum Error {
     ReadContent(&'static str, Option<std::io::Error>),
     DeleteContent(&'static str, Option<std::io::Error>),
     InsertWithErr(Box<dyn std::error::Error>),
+    DangerousKey(String),
 }
 
 impl Display for Error {
@@ -34,6 +35,7 @@ impl Display for Error {
                 f.write_fmt(format_args!("Failed to insert with: {user}"))
             }
             Error::ParseMetadata(s) => f.write_fmt(format_args!("Failed to parse metadata: '{s}'")),
+            Error::DangerousKey(e) => f.write_fmt(format_args!("Dangerous key used: {e}")),
         }
     }
 }
