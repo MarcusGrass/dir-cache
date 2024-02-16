@@ -8,10 +8,10 @@ use std::time::Duration;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct DirCacheOpts {
-    pub(crate) mem_pull_opt: MemPullOpt,
-    pub(crate) mem_push_opt: MemPushOpt,
-    pub(crate) generation_opt: GenerationOpt,
-    pub(crate) sync_opt: SyncOpt,
+    pub mem_pull_opt: MemPullOpt,
+    pub mem_push_opt: MemPushOpt,
+    pub generation_opt: GenerationOpt,
+    pub sync_opt: SyncOpt,
 }
 
 impl DirCacheOpts {
