@@ -4,19 +4,19 @@ use crate::disk::{
 };
 use crate::error::{Error, Result};
 use crate::opts::{DirCacheOpts, Encoding, GenerationOpt, MemPullOpt, MemPushOpt, SyncOpt};
+use crate::path_util::reject_demonstrably_unsafe_key;
 use crate::time::{duration_from_nano_string, unix_time_now};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use crate::path_util::reject_demonstrably_unsafe_key;
 
 mod disk;
 pub mod error;
 pub mod opts;
-mod time;
 mod path_util;
+mod time;
 
 const MANIFEST_VERSION: u64 = 1;
 const MANIFEST_FILE: &str = "manifest.txt";
@@ -390,11 +390,12 @@ impl DirCacheEntry {
             let file_name = format!("gen_{}", self.on_disk.len());
             let file = base.join(&file_name);
             ensure_removed_file(&file)?;
+            self.on_disk.pop_back();
         }
         let mut gen_queue = VecDeque::with_capacity(max_rem);
-        for (ind, gen) in self.on_disk.drain(..).enumerate().take(max_rem).rev() {
+        for (ind, gen) in self.on_disk.drain(..).enumerate().take(max_rem - 1).rev() {
             let n1 = base.join(format!("gen_{ind}"));
-            let n2 = base.join(format!("get_{}", ind + 1));
+            let n2 = base.join(format!("gen_{}", ind + 1));
             gen_queue.push_front(gen);
             std::fs::rename(&n1, &n2)
                 .map_err(|e| Error::WriteContent("Failed to migrate generations", Some(e)))?;
@@ -405,6 +406,9 @@ impl DirCacheEntry {
             age: last_update,
         };
         self.on_disk.push_front(next_gen);
+        for old in gen_queue {
+            self.on_disk.push_back(old);
+        }
         self.last_updated = last_update;
         std::fs::write(base.join("gen_0"), data)
             .map_err(|e| Error::WriteContent("Failed to write new generation", Some(e)))?;

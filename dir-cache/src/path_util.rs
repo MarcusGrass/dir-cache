@@ -1,5 +1,5 @@
-use std::path::{Path};
 use crate::error::{Error, Result};
+use std::path::Path;
 
 // The path needs to be safe, there will be a lot of path joining.
 // Paths are a nightmare, this is just a best attempt at protecting the user from themselves.
@@ -8,7 +8,9 @@ use crate::error::{Error, Result};
 #[inline]
 pub(crate) fn reject_demonstrably_unsafe_key(path: &Path) -> Result<()> {
     if path.is_absolute() {
-        Err(Error::DangerousKey(format!("Path {path:?} is absolute, should not be used as key")))
+        Err(Error::DangerousKey(format!(
+            "Path {path:?} is absolute, should not be used as key"
+        )))
     } else {
         Ok(())
     }

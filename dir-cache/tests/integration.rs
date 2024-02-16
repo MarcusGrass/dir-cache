@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::io::ErrorKind;
 use std::num::NonZeroUsize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 fn dummy_key() -> &'static Path {
@@ -226,12 +226,68 @@ fn rejects_weird_paths() {
     let opts = *dc.opts();
     let unsafe_key = Path::new("/absolute");
     assert!(matches!(dc.get(unsafe_key), Err(Error::DangerousKey(_))));
-    assert!(matches!(dc.get_opt(unsafe_key, opts), Err(Error::DangerousKey(_))));
-    assert!(matches!(dc.insert(unsafe_key, b"".to_vec()), Err(Error::DangerousKey(_))));
-    assert!(matches!(dc.insert_opt(unsafe_key, b"".to_vec(), opts), Err(Error::DangerousKey(_))));
+    assert!(matches!(
+        dc.get_opt(unsafe_key, opts),
+        Err(Error::DangerousKey(_))
+    ));
+    assert!(matches!(
+        dc.insert(unsafe_key, b"".to_vec()),
+        Err(Error::DangerousKey(_))
+    ));
+    assert!(matches!(
+        dc.insert_opt(unsafe_key, b"".to_vec(), opts),
+        Err(Error::DangerousKey(_))
+    ));
     assert!(matches!(dc.remove(unsafe_key), Err(Error::DangerousKey(_))));
 }
 
+#[test]
+fn write_generational_finds_on_disk() {
+    let tmp = tempdir::TempDir::new("write_generational_finds_on_disk").unwrap();
+    assert_empty_dir_at(tmp.path());
+    let mut dc = DirCacheOpts::default()
+        .with_generation_opt(GenerationOpt::new(
+            NonZeroUsize::new(4).unwrap(),
+            Encoding::Plain,
+            ExpirationOpt::DoNothing,
+        ))
+        .with_mem_push_opt(MemPushOpt::PassthroughWrite)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    let my_key = dummy_key();
+
+    dc.insert(my_key, b"gen5".to_vec()).unwrap();
+    dc.insert(my_key, b"gen4".to_vec()).unwrap();
+    dc.insert(my_key, b"gen3".to_vec()).unwrap();
+    dc.insert(my_key, b"gen2".to_vec()).unwrap();
+    dc.insert(my_key, b"gen1".to_vec()).unwrap();
+    dc.insert(my_key, b"gen0".to_vec()).unwrap();
+    let path = tmp.path().join(my_key);
+    let mut files = all_files_in(&path);
+    assert_eq!(5, files.len(), "files: {files:?}");
+    let expect_manifest = path.join("manifest.txt");
+    assert!(files.remove(&expect_manifest));
+    let expect_gen0 = path.join("gen_0");
+    assert!(files.remove(&expect_gen0));
+    let content = std::fs::read(&expect_gen0).unwrap();
+    assert_eq!(b"gen0".as_slice(), &content);
+    let expect_gen1 = path.join("gen_1");
+    assert!(files.remove(&expect_gen1));
+    let content = std::fs::read(&expect_gen1).unwrap();
+    assert_eq!(b"gen1".as_slice(), &content);
+    let expect_gen2 = path.join("gen_2");
+    assert!(files.remove(&expect_gen2));
+    let content = std::fs::read(&expect_gen2).unwrap();
+    assert_eq!(b"gen2".as_slice(), &content);
+    let expect_gen3 = path.join("gen_3");
+    assert!(files.remove(&expect_gen3));
+    let content = std::fs::read(&expect_gen3).unwrap();
+    assert_eq!(b"gen3".as_slice(), &content);
+    assert!(files.is_empty());
+}
 
 #[derive(Debug, Eq, PartialEq)]
 enum ExpectedDiskObject {
@@ -291,7 +347,10 @@ fn all_opts(genarations: usize) -> Vec<DirCacheOpts> {
             MemPushOpt::RetainAndWrite,
         ] {
             for i in 1..genarations {
-                for exp in [ExpirationOpt::DoNothing, ExpirationOpt::DeleteAfter(Duration::from_secs(1_000))] {
+                for exp in [
+                    ExpirationOpt::DoNothing,
+                    ExpirationOpt::DeleteAfter(Duration::from_secs(1_000)),
+                ] {
                     let gen =
                         GenerationOpt::new(NonZeroUsize::new(i).unwrap(), Encoding::Plain, exp);
                     for sync in [SyncOpt::SyncOnDrop, SyncOpt::ManualSync] {
@@ -299,6 +358,18 @@ fn all_opts(genarations: usize) -> Vec<DirCacheOpts> {
                     }
                 }
             }
+        }
+    }
+    v
+}
+
+fn all_files_in(path: &Path) -> HashSet<PathBuf> {
+    let mut v = HashSet::new();
+    for e in std::fs::read_dir(path).unwrap() {
+        let entry = e.unwrap();
+        let md = entry.metadata().unwrap();
+        if md.is_file() {
+            v.insert(entry.path());
         }
     }
     v
