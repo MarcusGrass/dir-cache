@@ -8,6 +8,7 @@ use std::convert::Infallible;
 use std::io::ErrorKind;
 use std::num::NonZeroUsize;
 use std::path::Path;
+use std::time::Duration;
 
 fn dummy_key() -> &'static Path {
     Path::new("dummykey")
@@ -216,7 +217,6 @@ fn rejects_weird_paths() {
     let tmp = tempdir::TempDir::new("rejects_weird_paths").unwrap();
     assert_empty_dir_at(tmp.path());
     let mut dc = DirCacheOpts::default()
-        .with_sync_opt(SyncOpt::SyncOnDrop)
         .open(
             tmp.path(),
             CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
@@ -231,6 +231,7 @@ fn rejects_weird_paths() {
     assert!(matches!(dc.insert_opt(unsafe_key, b"".to_vec(), opts), Err(Error::DangerousKey(_))));
     assert!(matches!(dc.remove(unsafe_key), Err(Error::DangerousKey(_))));
 }
+
 
 #[derive(Debug, Eq, PartialEq)]
 enum ExpectedDiskObject {
@@ -290,7 +291,7 @@ fn all_opts(genarations: usize) -> Vec<DirCacheOpts> {
             MemPushOpt::RetainAndWrite,
         ] {
             for i in 1..genarations {
-                for exp in [ExpirationOpt::DoNothing, ExpirationOpt::DoNothing] {
+                for exp in [ExpirationOpt::DoNothing, ExpirationOpt::DeleteAfter(Duration::from_secs(1_000))] {
                     let gen =
                         GenerationOpt::new(NonZeroUsize::new(i).unwrap(), Encoding::Plain, exp);
                     for sync in [SyncOpt::SyncOnDrop, SyncOpt::ManualSync] {

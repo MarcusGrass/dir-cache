@@ -287,6 +287,7 @@ impl DirCacheInner {
                     committed: false,
                     content,
                 });
+                dc.last_updated = unix_time_now()?;
             }
             MemPushOpt::PassthroughWrite => {
                 dc.in_mem = None;
@@ -375,6 +376,7 @@ impl DirCacheEntry {
                     committed: false,
                     content: data,
                 });
+                self.last_updated = unix_time_now()?;
             }
             MemPushOpt::PassthroughWrite => {
                 self.generational_write(path, &data, generation_opt.max_generations.get())?;
