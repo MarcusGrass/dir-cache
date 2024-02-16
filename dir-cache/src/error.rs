@@ -13,6 +13,7 @@ pub enum Error {
     InsertWithErr(Box<dyn std::error::Error>),
     DangerousKey(String),
     EncodingError(String),
+    PathRelativize(String),
 }
 
 impl Display for Error {
@@ -38,6 +39,9 @@ impl Display for Error {
             Error::ParseMetadata(s) => f.write_fmt(format_args!("Failed to parse metadata: '{s}'")),
             Error::DangerousKey(e) => f.write_fmt(format_args!("Dangerous key used: {e}")),
             Error::EncodingError(e) => f.write_fmt(format_args!("Failed to encode content: {e}")),
+            Error::PathRelativize(s) => {
+                f.write_fmt(format_args!("Failed to relativize paths: {s}"))
+            }
         }
     }
 }

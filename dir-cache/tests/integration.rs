@@ -212,9 +212,36 @@ fn check_sync_on_drop() {
 }
 
 #[test]
+fn insert_sync_drop_reopen() {
+    let tmp = tempdir::TempDir::new("insert_sync_drop_reopen").unwrap();
+    assert_empty_dir_at(tmp.path());
+    let mut dc = DirCacheOpts::default()
+        .with_sync_opt(SyncOpt::SyncOnDrop)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    let my_key = dummy_key();
+    let my_content = dummy_content();
+    assert!(dc.get(my_key).unwrap().is_none());
+    dc.insert(my_key, my_content.to_vec()).unwrap();
+    assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+    drop(dc);
+    let mut new_dc = DirCacheOpts::default()
+        .with_sync_opt(SyncOpt::SyncOnDrop)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    assert_eq!(my_content, new_dc.get(my_key).unwrap().unwrap().as_ref());
+}
+
+#[test]
 #[cfg(unix)]
-fn rejects_weird_paths() {
-    let tmp = tempdir::TempDir::new("rejects_weird_paths").unwrap();
+fn rejects_bad_paths_on_saves() {
+    let tmp = tempdir::TempDir::new("rejects_bad_paths_on_saves").unwrap();
     assert_empty_dir_at(tmp.path());
     let mut dc = DirCacheOpts::default()
         .open(
@@ -225,9 +252,14 @@ fn rejects_weird_paths() {
     // Absolute path on unix, does not join properly
     let opts = *dc.opts();
     let unsafe_key = Path::new("/absolute");
-    assert!(matches!(dc.get(unsafe_key), Err(Error::DangerousKey(_))));
+    assert!(dc.get(unsafe_key).unwrap().is_none());
+    assert!(dc.get_opt(unsafe_key, opts).unwrap().is_none());
     assert!(matches!(
-        dc.get_opt(unsafe_key, opts),
+        dc.get_or_insert(unsafe_key, || Ok::<_, Infallible>(b"".to_vec())),
+        Err(Error::DangerousKey(_))
+    ));
+    assert!(matches!(
+        dc.get_or_insert_opt(unsafe_key, || Ok::<_, Infallible>(b"".to_vec()), opts),
         Err(Error::DangerousKey(_))
     ));
     assert!(matches!(
@@ -238,7 +270,7 @@ fn rejects_weird_paths() {
         dc.insert_opt(unsafe_key, b"".to_vec(), opts),
         Err(Error::DangerousKey(_))
     ));
-    assert!(matches!(dc.remove(unsafe_key), Err(Error::DangerousKey(_))));
+    assert!(!dc.remove(unsafe_key).unwrap());
 }
 
 #[test]

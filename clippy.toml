@@ -1,0 +1,5 @@
+disallowed-methods = [
+    # Try to avoid bugs, or the user shooting themselves in the foot causing unexpected disk changes
+    "std::path::Path::join",
+    "std::path::PathBuf::join",
+]
