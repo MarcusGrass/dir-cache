@@ -5,7 +5,7 @@ use dir_cache::opts::{
 };
 use std::collections::HashSet;
 use std::convert::Infallible;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -19,7 +19,7 @@ fn dummy_content() -> &'static [u8] {
 }
 
 #[test]
-fn map_functionality_all_opts() {
+fn smoke_map_functionality_all_opts() {
     // Make sure all bounded options permutations work as a map, without checking
     // for side effects, good smoke test, will find incompatible combinations of options
     let opts = all_opts(3);
@@ -289,6 +289,56 @@ fn write_generational_finds_on_disk() {
     assert!(files.is_empty());
 }
 
+#[test]
+#[cfg(feature = "lz4")]
+fn write_generational_lz4() {
+    let tmp = tempdir::TempDir::new("write_generational_lz4").unwrap();
+    assert_empty_dir_at(tmp.path());
+    let mut dc = DirCacheOpts::default()
+        .with_generation_opt(GenerationOpt::new(
+            NonZeroUsize::new(4).unwrap(),
+            Encoding::Lz4,
+            ExpirationOpt::DoNothing,
+        ))
+        .with_mem_push_opt(MemPushOpt::PassthroughWrite)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    let my_key = dummy_key();
+
+    dc.insert(my_key, b"gen5".to_vec()).unwrap();
+    dc.insert(my_key, b"gen4".to_vec()).unwrap();
+    dc.insert(my_key, b"gen3".to_vec()).unwrap();
+    dc.insert(my_key, b"gen2".to_vec()).unwrap();
+    dc.insert(my_key, b"gen1".to_vec()).unwrap();
+    dc.insert(my_key, b"gen0".to_vec()).unwrap();
+    let path = tmp.path().join(my_key);
+    let mut files = all_files_in(&path);
+    assert_eq!(5, files.len(), "files: {files:?}");
+    let expect_manifest = path.join("manifest.txt");
+    assert!(files.remove(&expect_manifest));
+    let expect_gen0 = path.join("gen_0");
+    assert!(files.remove(&expect_gen0));
+    let content = std::fs::read(&expect_gen0).unwrap();
+
+    assert_eq!(b"gen0".as_slice(), &content);
+    let expect_gen1 = path.join("gen_1");
+    assert!(files.remove(&expect_gen1));
+    let content = std::fs::read(&expect_gen1).unwrap();
+    assert_eq!(encode(b"gen1"), content);
+    let expect_gen2 = path.join("gen_2");
+    assert!(files.remove(&expect_gen2));
+    let content = std::fs::read(&expect_gen2).unwrap();
+    assert_eq!(encode(b"gen2"), content);
+    let expect_gen3 = path.join("gen_3");
+    assert!(files.remove(&expect_gen3));
+    let content = std::fs::read(&expect_gen3).unwrap();
+    assert_eq!(encode(b"gen3"), content);
+    assert!(files.is_empty());
+}
+
 #[derive(Debug, Eq, PartialEq)]
 enum ExpectedDiskObject {
     File,
@@ -373,4 +423,12 @@ fn all_files_in(path: &Path) -> HashSet<PathBuf> {
         }
     }
     v
+}
+
+#[cfg(feature = "lz4")]
+fn encode(content: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let mut encoder = lz4::EncoderBuilder::new().build(&mut buf).unwrap();
+    encoder.write(&content).unwrap();
+    buf
 }

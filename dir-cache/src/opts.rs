@@ -2,6 +2,7 @@ use crate::disk::{ensure_dir, exists, FileObjectExists};
 use crate::error::{Error, Result};
 use crate::{DirCache, DirCacheInner};
 use std::fmt::Display;
+use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;
@@ -184,21 +185,45 @@ impl GenerationOpt {
 #[derive(Copy, Clone, Debug)]
 pub enum Encoding {
     Plain,
+    #[cfg(feature = "lz4")]
+    Lz4,
 }
 
 impl Encoding {
     pub(crate) fn serialize(&self) -> impl Display {
         match self {
             Encoding::Plain => 0u8,
+            #[cfg(feature = "lz4")]
+            Encoding::Lz4 => 1u8,
         }
     }
 
     pub(crate) fn deserialize(s: &str) -> Result<Self> {
         match s {
             "0" => Ok(Self::Plain),
+            #[cfg(feature = "lz4")]
+            "1" => Ok(Self::Lz4),
             v => Err(Error::ParseMetadata(format!(
                 "Failed to parse encoding from {v}"
             ))),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn encode(self, content: Vec<u8>) -> Result<Vec<u8>> {
+        match self {
+            Encoding::Plain => Ok(content),
+            #[cfg(feature = "lz4")]
+            Encoding::Lz4 => {
+                let mut buf = Vec::new();
+                let mut encoder = lz4::EncoderBuilder::new().build(&mut buf).map_err(|e| {
+                    Error::EncodingError(format!("Failed to create lz4 encoder builder: {e}"))
+                })?;
+                encoder.write(&content).map_err(|e| {
+                    Error::EncodingError(format!("Failed to lz4 encode content: {e}"))
+                })?;
+                Ok(buf)
+            }
         }
     }
 }

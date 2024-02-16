@@ -165,7 +165,7 @@ impl DirCacheInner {
             return Ok(None);
         }
 
-        if let Some(f) = val.on_disk.get(0) {
+        if let Some(f) = val.on_disk.front() {
             if f.age.saturating_add(generation_opt.expiration.as_dur()) <= now {
                 // No value in mem, also first value on disk is too old, clean up
                 try_remove_dir(&path)?;
@@ -276,7 +276,12 @@ impl DirCacheInner {
         match mem_push_opt {
             MemPushOpt::RetainAndWrite => {
                 ensure_dir(path)?;
-                dc.generational_write(&path, &content, generation_opt.max_generations.get())?;
+                dc.generational_write(
+                    path,
+                    &content,
+                    generation_opt.old_gen_encoding,
+                    generation_opt.max_generations.get(),
+                )?;
                 dc.in_mem = Some(InMemEntry {
                     committed: true,
                     content,
@@ -292,7 +297,12 @@ impl DirCacheInner {
             MemPushOpt::PassthroughWrite => {
                 dc.in_mem = None;
                 ensure_dir(path)?;
-                dc.generational_write(&path, &content, generation_opt.max_generations.get())?;
+                dc.generational_write(
+                    path,
+                    &content,
+                    generation_opt.old_gen_encoding,
+                    generation_opt.max_generations.get(),
+                )?;
             }
         }
         Ok(())
@@ -306,11 +316,12 @@ impl DirCacheInner {
         for (k, v) in &mut self.store {
             let dir = self.base.join(k);
             ensure_dir(&dir)?;
-            let max_rem = generation_opt.max_generations.get() - 1;
+            let max_rem = generation_opt.max_generations.get();
             v.dump_in_mem(
                 &dir,
                 matches!(mem_push_opt, MemPushOpt::RetainAndWrite),
                 max_rem,
+                generation_opt.old_gen_encoding,
             )?;
         }
         Ok(())
@@ -365,7 +376,12 @@ impl DirCacheEntry {
     ) -> Result<()> {
         match mem_push_opt {
             MemPushOpt::RetainAndWrite => {
-                self.generational_write(path, &data, generation_opt.max_generations.get())?;
+                self.generational_write(
+                    path,
+                    &data,
+                    generation_opt.old_gen_encoding,
+                    generation_opt.max_generations.get(),
+                )?;
                 self.in_mem = Some(InMemEntry {
                     committed: false,
                     content: data,
@@ -379,13 +395,24 @@ impl DirCacheEntry {
                 self.last_updated = unix_time_now()?;
             }
             MemPushOpt::PassthroughWrite => {
-                self.generational_write(path, &data, generation_opt.max_generations.get())?;
+                self.generational_write(
+                    path,
+                    &data,
+                    generation_opt.old_gen_encoding,
+                    generation_opt.max_generations.get(),
+                )?;
             }
         }
         Ok(())
     }
 
-    fn generational_write(&mut self, base: &Path, data: &[u8], max_rem: usize) -> Result<()> {
+    fn generational_write(
+        &mut self,
+        base: &Path,
+        data: &[u8],
+        old_gen_encoding: Encoding,
+        max_rem: usize,
+    ) -> Result<()> {
         while self.on_disk.len() > max_rem {
             let file_name = format!("gen_{}", self.on_disk.len());
             let file = base.join(&file_name);
@@ -396,9 +423,19 @@ impl DirCacheEntry {
         for (ind, gen) in self.on_disk.drain(..).enumerate().take(max_rem - 1).rev() {
             let n1 = base.join(format!("gen_{ind}"));
             let n2 = base.join(format!("gen_{}", ind + 1));
+            if ind == 0 && !matches!(old_gen_encoding, Encoding::Plain) {
+                let content = std::fs::read(&n1)
+                    .map_err(|e| Error::ReadContent("Failed to read first generation", Some(e)))?;
+                let new_content = old_gen_encoding.encode(content)?;
+                std::fs::write(&n2, new_content)
+                    .map_err(|e| Error::WriteContent("Failed to write encoded content", Some(e)))?;
+                // Don't need to remove the old file, it'll be overwritten on the next loop, or in the next step
+            } else {
+                // No recoding necessary, just replace
+                std::fs::rename(&n1, &n2)
+                    .map_err(|e| Error::WriteContent("Failed to migrate generations", Some(e)))?;
+            }
             gen_queue.push_front(gen);
-            std::fs::rename(&n1, &n2)
-                .map_err(|e| Error::WriteContent("Failed to migrate generations", Some(e)))?;
         }
         let last_update = unix_time_now()?;
         let next_gen = ContentGeneration {
@@ -463,6 +500,7 @@ impl DirCacheEntry {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn read_metadata(base: &Path) -> Result<Option<(u64, VecDeque<(Duration, Encoding)>)>> {
         let Some(content) = read_metadata_if_present(&base.join(MANIFEST_FILE))? else {
             return Ok(None);
@@ -493,38 +531,15 @@ impl DirCacheEntry {
         base: &Path,
         keep_in_mem: bool,
         keep_generations: usize,
+        old_gen_encoding: Encoding,
     ) -> Result<()> {
-        let max_rem = keep_generations;
-        if let Some(in_mem) = &mut self.in_mem {
-            while self.on_disk.len() > max_rem {
-                let file_name = format!("gen_{}", self.on_disk.len());
-                let file = base.join(&file_name);
-                ensure_removed_file(&file)?;
-                self.on_disk.pop_back();
-            }
+        let maybe_in_mem = self.in_mem.take();
+        if let Some(mut in_mem) = maybe_in_mem {
             if !in_mem.committed {
-                let mut gen_queue = VecDeque::with_capacity(max_rem);
-                for (ind, gen) in self.on_disk.drain(..).enumerate().take(max_rem).rev() {
-                    let n1 = base.join(format!("gen_{ind}"));
-                    let n2 = base.join(format!("get_{}", ind + 1));
-                    gen_queue.push_front(gen);
-                    std::fs::rename(&n1, &n2).map_err(|e| {
-                        Error::WriteContent("Failed to migrate generations", Some(e))
-                    })?;
-                }
-                let last_update = unix_time_now()?;
-                let next_gen = ContentGeneration {
-                    encoding: Encoding::Plain,
-                    age: last_update,
-                };
-                self.on_disk.push_front(next_gen);
-                self.last_updated = last_update;
-                std::fs::write(base.join("gen_0"), &in_mem.content)
-                    .map_err(|e| Error::WriteContent("Failed to write new generation", Some(e)))?;
+                self.generational_write(base, &in_mem.content, old_gen_encoding, keep_generations)?;
                 if keep_in_mem {
                     in_mem.committed = true;
-                } else {
-                    self.in_mem.take();
+                    self.in_mem = Some(in_mem);
                 }
             }
         }
