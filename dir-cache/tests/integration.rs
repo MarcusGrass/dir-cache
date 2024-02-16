@@ -19,17 +19,34 @@ fn dummy_content() -> &'static [u8] {
 
 #[test]
 fn map_functionality_all_opts() {
+    // Make sure all bounded options permutations work as a map, without checking
+    // for side effects, good smoke test, will find incompatible combinations of options
     let opts = all_opts(3);
     for opt in opts {
         for dir_open in [DirOpen::OnlyIfExists, DirOpen::CreateIfMissing] {
             for eager in [true, false] {
                 let tmp = tempdir::TempDir::new("map_functionality_all_opts").unwrap();
-                let mut dc = opt.open(tmp.path(), CacheOpenOptions::new(dir_open, eager)).unwrap();
+                let mut dc = opt
+                    .open(tmp.path(), CacheOpenOptions::new(dir_open, eager))
+                    .unwrap();
                 let my_key = dummy_key();
                 let my_content = dummy_content();
                 assert!(dc.get(my_key).unwrap().is_none());
                 dc.insert(my_key, my_content.to_vec()).unwrap();
                 assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+                assert!(dc.remove(my_key).unwrap());
+                assert!(!dc.remove(my_key).unwrap());
+                assert!(dc.get(my_key).unwrap().is_none());
+                assert_eq!(
+                    my_content,
+                    dc.get_or_insert(my_key, || Ok::<_, Infallible>(my_content.to_vec()))
+                        .unwrap()
+                        .as_ref()
+                );
+                assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+                assert!(dc.remove(my_key).unwrap());
+                assert!(!dc.remove(my_key).unwrap());
+                assert!(dc.get(my_key).unwrap().is_none());
             }
         }
     }
@@ -241,11 +258,19 @@ fn check_path(path: &Path) -> Option<ExpectedDiskObject> {
 
 fn all_opts(genarations: usize) -> Vec<DirCacheOpts> {
     let mut v = vec![];
-    for mem_pull in [MemPullOpt::DontKeepInMemoryOnRead, MemPullOpt::KeepInMemoryOnRead] {
-        for mem_push in [MemPushOpt::MemoryOnly, MemPushOpt::PassthroughWrite, MemPushOpt::RetainAndWrite] {
+    for mem_pull in [
+        MemPullOpt::DontKeepInMemoryOnRead,
+        MemPullOpt::KeepInMemoryOnRead,
+    ] {
+        for mem_push in [
+            MemPushOpt::MemoryOnly,
+            MemPushOpt::PassthroughWrite,
+            MemPushOpt::RetainAndWrite,
+        ] {
             for i in 1..genarations {
                 for exp in [ExpirationOpt::DoNothing, ExpirationOpt::DoNothing] {
-                    let gen = GenerationOpt::new(NonZeroUsize::new(i).unwrap(), Encoding::Plain, exp);
+                    let gen =
+                        GenerationOpt::new(NonZeroUsize::new(i).unwrap(), Encoding::Plain, exp);
                     for sync in [SyncOpt::SyncOnDrop, SyncOpt::ManualSync] {
                         v.push(DirCacheOpts::new(mem_pull, mem_push, gen, sync));
                     }

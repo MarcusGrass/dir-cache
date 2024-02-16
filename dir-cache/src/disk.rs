@@ -82,6 +82,9 @@ pub(crate) fn ensure_removed_file(path: &Path) -> Result<()> {
 
 pub(crate) fn try_remove_dir(path: &Path) -> Result<()> {
     let mut any_dirs = false;
+    if exists(path)? == FileObjectExists::No {
+        return Ok(());
+    }
     read_all_in_dir(path, |entry_path, entry_metadata| {
         if entry_metadata.is_dir() {
             any_dirs = true;
