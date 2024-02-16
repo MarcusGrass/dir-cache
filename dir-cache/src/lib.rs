@@ -485,6 +485,7 @@ impl DirCacheEntry {
                 let file_name = format!("gen_{}", self.on_disk.len());
                 let file = base.join(&file_name);
                 ensure_removed_file(&file)?;
+                self.on_disk.pop_back();
             }
             if !in_mem.committed {
                 let mut gen_queue = VecDeque::with_capacity(max_rem);

@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;
 
-#[derive(Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct DirCacheOpts {
     pub(crate) mem_pull_opt: MemPullOpt,
     pub(crate) mem_push_opt: MemPushOpt,
