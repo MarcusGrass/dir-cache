@@ -218,7 +218,7 @@ impl Encoding {
                 let mut encoder = lz4::EncoderBuilder::new().build(&mut buf).map_err(|e| {
                     Error::EncodingError(format!("Failed to create lz4 encoder builder: {e}"))
                 })?;
-                encoder.write(&content).map_err(|e| {
+                std::io::Write::write(&mut encoder, &content).map_err(|e| {
                     Error::EncodingError(format!("Failed to lz4 encode content: {e}"))
                 })?;
                 Ok(buf)

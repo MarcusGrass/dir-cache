@@ -5,7 +5,7 @@ use dir_cache::opts::{
 };
 use std::collections::HashSet;
 use std::convert::Infallible;
-use std::io::ErrorKind;
+use std::io::{ErrorKind};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -461,6 +461,6 @@ fn all_files_in(path: &Path) -> HashSet<PathBuf> {
 fn encode(content: &[u8]) -> Vec<u8> {
     let mut buf = Vec::new();
     let mut encoder = lz4::EncoderBuilder::new().build(&mut buf).unwrap();
-    encoder.write(&content).unwrap();
+    std::io::Write::write(&mut encoder, &content).unwrap();
     buf
 }
