@@ -336,6 +336,9 @@ fn write_generational_finds_on_disk() {
     let content = std::fs::read(&expect_gen3).unwrap();
     assert_eq!(b"gen3".as_slice(), &content);
     assert!(files.is_empty());
+    // Removes all generations
+    assert!(dc.remove(my_key).unwrap());
+    assert!(check_path(&tmp.path().join(my_key)).is_none());
 }
 
 #[test]
@@ -386,6 +389,9 @@ fn write_generational_lz4() {
     let content = std::fs::read(&expect_gen3).unwrap();
     assert_eq!(encode(b"gen3"), content);
     assert!(files.is_empty());
+    // Removes all generations
+    assert!(dc.remove(my_key).unwrap());
+    assert!(check_path(&tmp.path().join(my_key)).is_none());
 }
 
 #[test]
@@ -426,6 +432,54 @@ fn tolerates_foreign_files() {
     assert_eq!(1, files.len());
     let file = files.into_iter().next().unwrap();
     assert!(file.ends_with("rogue_user_file"));
+}
+
+#[test]
+fn can_write_and_pick_up_subdirs() {
+    let tmp = tempdir::TempDir::new("can_write_subdirs").unwrap();
+    assert_empty_dir_at(tmp.path());
+    let mut dc = DirCacheOpts::default()
+        .with_sync_opt(SyncOpt::SyncOnDrop)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    let my_key = dummy_key();
+    let my_content = dummy_content();
+    dc.insert(my_key, my_content.to_vec()).unwrap();
+    assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+    let my_sub_key = my_key.join("sub");
+    let my_sub_content = b"Good content";
+    dc.insert(&my_sub_key, my_sub_content.to_vec()).unwrap();
+    assert_eq!(
+        my_sub_content,
+        dc.get(&my_sub_key).unwrap().unwrap().as_ref()
+    );
+    drop(dc);
+    let mut dc = DirCacheOpts::default()
+        .with_sync_opt(SyncOpt::SyncOnDrop)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+    assert_eq!(
+        my_sub_content,
+        dc.get(&my_sub_key).unwrap().unwrap().as_ref()
+    );
+    // Removing outer first, will leave an empty outer dir
+    assert!(dc.remove(&my_key).unwrap());
+    assert!(dc.get(my_key).unwrap().is_none());
+    assert!(all_files_in(&tmp.path().join(my_key)).is_empty());
+    assert_dir_at(&tmp.path().join(my_key));
+
+    assert!(dc.remove(&my_sub_key).unwrap());
+    assert!(dc.get(&my_sub_key).unwrap().is_none());
+    assert!(check_path(&tmp.path().join(my_sub_key)).is_none());
+    // Remains
+    assert_dir_at(&tmp.path().join(my_key));
 }
 
 #[derive(Debug, Eq, PartialEq)]
