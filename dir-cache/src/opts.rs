@@ -2,7 +2,6 @@ use crate::disk::{ensure_dir, exists, FileObjectExists};
 use crate::error::{Error, Result};
 use crate::{DirCache, DirCacheInner};
 use std::fmt::Display;
-use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;

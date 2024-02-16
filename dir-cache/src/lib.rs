@@ -27,6 +27,8 @@ pub struct DirCache {
 }
 
 impl DirCache {
+    /// Get this [`DirCache`]'s [`DirCacheOpts`].
+    /// Useful if only changing one opt for an operation.
     #[inline]
     pub fn opts(&self) -> &DirCacheOpts {
         &self.opts
@@ -484,7 +486,7 @@ impl DirCacheEntry {
                     in_mem = Some(InMemEntry {
                         committed: true,
                         content,
-                    })
+                    });
                 }
             }
             on_disk.push_back(ContentGeneration { encoding: enc, age });

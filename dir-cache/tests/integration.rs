@@ -5,7 +5,7 @@ use dir_cache::opts::{
 };
 use std::collections::HashSet;
 use std::convert::Infallible;
-use std::io::{ErrorKind, Write};
+use std::io::ErrorKind;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

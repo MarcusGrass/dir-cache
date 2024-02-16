@@ -14,3 +14,6 @@ lz4 = { version = "1.24.0", optional = true }
 
 [dev-dependencies]
 tempdir = "0.3.7"
+
+[lints]
+workspace = true
