@@ -178,7 +178,7 @@ fn check_auto_sync_to_disk() {
     dc.insert(my_key, my_content.to_vec()).unwrap();
     assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
     assert_dir_at(&tmp.path().join(my_key));
-    assert_file_at(&tmp.path().join(my_key).join("manifest.txt"));
+    assert_file_at(&tmp.path().join(my_key).join("dir-cache-manifest.txt"));
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn check_manual_sync_to_disk() {
     assert_empty_dir_at(tmp.path());
     dc.sync().unwrap();
     assert_dir_at(&tmp.path().join(my_key));
-    assert_file_at(&tmp.path().join(my_key).join("manifest.txt"));
+    assert_file_at(&tmp.path().join(my_key).join("dir-cache-manifest.txt"));
 }
 
 #[test]
@@ -225,7 +225,7 @@ fn check_sync_on_drop() {
     assert_empty_dir_at(tmp.path());
     drop(dc);
     assert_dir_at(&tmp.path().join(my_key));
-    assert_file_at(&tmp.path().join(my_key).join("manifest.txt"));
+    assert_file_at(&tmp.path().join(my_key).join("dir-cache-manifest.txt"));
 }
 
 #[test]
@@ -317,21 +317,21 @@ fn write_generational_finds_on_disk() {
     let path = tmp.path().join(my_key);
     let mut files = all_files_in(&path);
     assert_eq!(5, files.len(), "files: {files:?}");
-    let expect_manifest = path.join("manifest.txt");
+    let expect_manifest = path.join("dir-cache-manifest.txt");
     assert!(files.remove(&expect_manifest));
-    let expect_gen0 = path.join("gen_0");
+    let expect_gen0 = path.join("dir-cache-generation-0");
     assert!(files.remove(&expect_gen0));
     let content = std::fs::read(&expect_gen0).unwrap();
     assert_eq!(b"gen0".as_slice(), &content);
-    let expect_gen1 = path.join("gen_1");
+    let expect_gen1 = path.join("dir-cache-generation-1");
     assert!(files.remove(&expect_gen1));
     let content = std::fs::read(&expect_gen1).unwrap();
     assert_eq!(b"gen1".as_slice(), &content);
-    let expect_gen2 = path.join("gen_2");
+    let expect_gen2 = path.join("dir-cache-generation-2");
     assert!(files.remove(&expect_gen2));
     let content = std::fs::read(&expect_gen2).unwrap();
     assert_eq!(b"gen2".as_slice(), &content);
-    let expect_gen3 = path.join("gen_3");
+    let expect_gen3 = path.join("dir-cache-generation-3");
     assert!(files.remove(&expect_gen3));
     let content = std::fs::read(&expect_gen3).unwrap();
     assert_eq!(b"gen3".as_slice(), &content);
@@ -369,22 +369,22 @@ fn write_generational_lz4() {
     let path = tmp.path().join(my_key);
     let mut files = all_files_in(&path);
     assert_eq!(5, files.len(), "files: {files:?}");
-    let expect_manifest = path.join("manifest.txt");
+    let expect_manifest = path.join("dir-cache-manifest.txt");
     assert!(files.remove(&expect_manifest));
-    let expect_gen0 = path.join("gen_0");
+    let expect_gen0 = path.join("dir-cache-generation-0");
     assert!(files.remove(&expect_gen0));
     let content = std::fs::read(&expect_gen0).unwrap();
 
     assert_eq!(b"gen0".as_slice(), &content);
-    let expect_gen1 = path.join("gen_1");
+    let expect_gen1 = path.join("dir-cache-generation-1");
     assert!(files.remove(&expect_gen1));
     let content = std::fs::read(&expect_gen1).unwrap();
     assert_eq!(encode(b"gen1"), content);
-    let expect_gen2 = path.join("gen_2");
+    let expect_gen2 = path.join("dir-cache-generation-2");
     assert!(files.remove(&expect_gen2));
     let content = std::fs::read(&expect_gen2).unwrap();
     assert_eq!(encode(b"gen2"), content);
-    let expect_gen3 = path.join("gen_3");
+    let expect_gen3 = path.join("dir-cache-generation-3");
     assert!(files.remove(&expect_gen3));
     let content = std::fs::read(&expect_gen3).unwrap();
     assert_eq!(encode(b"gen3"), content);

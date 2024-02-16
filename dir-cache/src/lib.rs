@@ -19,7 +19,7 @@ mod path_util;
 mod time;
 
 const MANIFEST_VERSION: u64 = 1;
-const MANIFEST_FILE: &str = "manifest.txt";
+const MANIFEST_FILE: &str = "dir-cache-manifest.txt";
 
 pub struct DirCache {
     inner: DirCacheInner,
@@ -178,7 +178,7 @@ impl DirCacheInner {
         let store = if let Some(in_mem) = val_ref_in_mem {
             return Ok(Some(Cow::Borrowed(in_mem.content.as_slice())));
         } else {
-            let file_path = path.safe_join("gen_0")?;
+            let file_path = path.safe_join("dir-cache-generation-0")?;
             let val = read_raw_if_present(&file_path)?.ok_or_else(|| {
                 Error::ReadContent("No file present on disk where expected", None)
             })?;
@@ -410,15 +410,15 @@ impl DirCacheEntry {
         max_rem: usize,
     ) -> Result<()> {
         while self.on_disk.len() > max_rem {
-            let file_name = format!("gen_{}", self.on_disk.len());
+            let file_name = format!("dir-cache-generation-{}", self.on_disk.len());
             let file = base.safe_join(&file_name)?;
             ensure_removed_file(&file)?;
             self.on_disk.pop_back();
         }
         let mut gen_queue = VecDeque::with_capacity(max_rem);
         for (ind, gen) in self.on_disk.drain(..).enumerate().take(max_rem - 1).rev() {
-            let n1 = base.safe_join(format!("gen_{ind}"))?;
-            let n2 = base.safe_join(format!("gen_{}", ind + 1))?;
+            let n1 = base.safe_join(format!("dir-cache-generation-{ind}"))?;
+            let n2 = base.safe_join(format!("dir-cache-generation-{}", ind + 1))?;
             if ind == 0 && !matches!(old_gen_encoding, Encoding::Plain) {
                 let content = std::fs::read(&n1)
                     .map_err(|e| Error::ReadContent("Failed to read first generation", Some(e)))?;
@@ -443,7 +443,7 @@ impl DirCacheEntry {
             self.on_disk.push_back(old);
         }
         self.last_updated = last_update;
-        std::fs::write(base.safe_join("gen_0")?, data)
+        std::fs::write(base.safe_join("dir-cache-generation-0")?, data)
             .map_err(|e| Error::WriteContent("Failed to write new generation", Some(e)))?;
         self.dump_metadata(base)?;
         Ok(())
@@ -468,13 +468,13 @@ impl DirCacheEntry {
         let mut last_updated = None;
         for (ind, (age, enc)) in entries.into_iter().enumerate() {
             if age.saturating_add(generation_opt.expiration.as_dur()) <= now {
-                ensure_removed_file(&base.safe_join(format!("gen_{ind}"))?)?;
+                ensure_removed_file(&base.safe_join(format!("dir-cache-generation-{ind}"))?)?;
                 continue;
             }
             if ind == 0 {
                 last_updated = Some(age);
                 if eager_load {
-                    let path = base.safe_join(format!("gen_{ind}"))?;
+                    let path = base.safe_join(format!("dir-cache-generation-{ind}"))?;
                     let content = std::fs::read(&path)
                         .map_err(|e| Error::ReadContent("Failed to eager load content", Some(e)))?;
                     in_mem = Some(InMemEntry {

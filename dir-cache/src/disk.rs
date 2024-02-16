@@ -93,7 +93,7 @@ pub(crate) fn try_remove_dir(path: &Path) -> Result<()> {
             })?;
             // Try to be restrictive in what's removed
             if let Some(valid_utf8) = f_name.to_str() {
-                if valid_utf8 == MANIFEST_FILE || valid_utf8.starts_with("gen_") {
+                if valid_utf8 == MANIFEST_FILE || valid_utf8.starts_with("dir-cache-generation-") {
                     ensure_removed_file(entry_path)?;
                     return Ok(());
                 }

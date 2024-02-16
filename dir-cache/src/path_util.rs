@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub(crate) trait SafePathJoin {
     /// The path needs to be safe, there will be a lot of path joining.
@@ -19,7 +19,15 @@ impl<'a> SafePathJoin for &'a Path {
         let other_ref = other.as_ref();
         if other_ref.is_absolute() {
             return Err(Error::DangerousKey(format!(
-                "Got an absolute path after joining {self:?} and {other_ref:?}"
+                "Got an absolute path when trying to join {self:?} and {other_ref:?}"
+            )));
+        }
+        if other_ref
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        {
+            return Err(Error::DangerousKey(format!(
+                "Found key that contains a component of a type other than Normal when trying to join {self:?} and {other_ref:?}"
             )));
         }
         let res = self.join(other_ref);
@@ -97,12 +105,18 @@ mod tests {
     #[test]
     fn safe_join_happy() {
         let base = Path::new("base");
-        let _other = base.safe_join("some_other_path").unwrap();
+        base.safe_join("some_other_path").unwrap();
+        base.safe_join("some/other/path").unwrap();
     }
 
     #[test]
     fn safe_join_sad() {
         let base = Path::new("base");
         assert!(base.safe_join(Path::new("/root")).is_err());
+        assert!(base.safe_join(Path::new(".")).is_err());
+        assert!(base.safe_join(Path::new("..")).is_err());
+        assert!(base
+            .safe_join(Path::new("hello/../../../etc/shadow"))
+            .is_err());
     }
 }
