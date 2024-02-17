@@ -347,6 +347,41 @@ fn write_generational_finds_on_disk() {
     assert!(dc.remove(my_key).unwrap());
     assert!(check_path(&tmp.path().join(my_key)).is_none());
 }
+#[test]
+fn write_generational_not_if_in_mem_only() {
+    let tmp = tempdir::TempDir::new("write_generational_not_if_in_mem_only").unwrap();
+    assert_empty_dir_at(tmp.path());
+    let mut dc = DirCacheOpts::default()
+        .with_generation_opt(GenerationOpt::new(
+            NonZeroUsize::new(4).unwrap(),
+            Encoding::Plain,
+            ExpirationOpt::DoNothing,
+        ))
+        .with_mem_push_opt(MemPushOpt::MemoryOnly)
+        .open(
+            tmp.path(),
+            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+        )
+        .unwrap();
+    let my_key = dummy_key();
+    dc.insert(my_key, b"gen5".to_vec()).unwrap();
+    dc.insert(my_key, b"gen4".to_vec()).unwrap();
+    dc.insert(my_key, b"gen3".to_vec()).unwrap();
+    dc.insert(my_key, b"gen2".to_vec()).unwrap();
+    dc.insert(my_key, b"gen1".to_vec()).unwrap();
+    dc.insert(my_key, b"gen0".to_vec()).unwrap();
+    assert_empty_dir_at(tmp.path());
+    dc.sync().unwrap();
+    let path = tmp.path().join(my_key);
+    let mut files = all_files_in(&path);
+    assert_eq!(2, files.len(), "files: {files:?}");
+    let expect_manifest = path.join("dir-cache-manifest.txt");
+    assert!(files.remove(&expect_manifest));
+    let expect_gen0 = path.join("dir-cache-generation-0");
+    assert!(files.remove(&expect_gen0));
+    let content = std::fs::read(&expect_gen0).unwrap();
+    assert_eq!(b"gen0".as_slice(), &content);
+}
 
 #[test]
 #[cfg(feature = "lz4")]
