@@ -3,6 +3,13 @@ name = "dir-cache"
 version = "0.1.0"
 edition = "2021"
 license = "MPL-2.0"
+license-file = "../LICENSE"
+readme = "../Readme.md"
+homepage = "https://github.com/MarcusGrass/dir-cache"
+repository = "https://github.com/MarcusGrass/dir-cache"
+keywords = ["cache", "map", "kv", "fs", "directory"]
+categories = ["caching", "database", "filesystem"]
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
