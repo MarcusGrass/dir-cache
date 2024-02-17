@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
+    Arithmetic(&'static str),
     ParseManifest(String),
     ParseMetadata(String),
     SystemTime(std::time::SystemTimeError),
@@ -19,6 +20,7 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Error::Arithmetic(s) => f.write_fmt(format_args!("Arithmetic failed: {s}")),
             Error::SystemTime(e) => f.write_fmt(format_args!("Failed to get system time: {e}")),
             Error::WriteContent(p, e) => f.write_fmt(format_args!(
                 "Failed to write content to disk at {p:?}, source: {e:?}"

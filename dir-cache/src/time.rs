@@ -5,13 +5,16 @@ pub(crate) fn duration_from_nano_string(input: &str) -> Result<Duration> {
     let epoch_nanos: u128 = input
         .parse()
         .map_err(|_| Error::ParseMetadata(format!("Failed to parse timestamp from {input}")))?;
-    Ok(duration_from_nanos(epoch_nanos))
+    duration_from_nanos(epoch_nanos)
 }
 
-pub(crate) fn duration_from_nanos(nanos: u128) -> Duration {
+pub(crate) fn duration_from_nanos(nanos: u128) -> Result<Duration> {
     let secs = nanos / 1_000_000_000u128;
     let nanos = nanos % 1_000_000_000u128;
-    Duration::new(secs as u64, nanos as u32)
+    Ok(Duration::new(
+        u64::try_from(secs).map_err(|_| Error::Arithmetic("Seconds too high to fit in a u64"))?,
+        u32::try_from(nanos).map_err(|_| Error::Arithmetic("Nanos to high to fit in a u32"))?,
+    ))
 }
 
 #[inline]

@@ -5,3 +5,4 @@ resolver = "2"
 [workspace.lints]
 clippy.pedantic = "warn"
 clippy.disallowed_methods = "deny"
+clippy.module_name_repetitions = "allow"

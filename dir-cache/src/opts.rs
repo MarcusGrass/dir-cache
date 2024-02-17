@@ -54,6 +54,10 @@ impl DirCacheOpts {
         self
     }
 
+    /// Use these [`DirCacheOpts`] to open a [`DirCache`].
+    /// # Errors
+    /// Depending on the open options a directory already being present or not may cause failure.
+    /// Various io-errors, from creating the [`DirCache`].
     pub fn open(self, path: &Path, cache_open_options: CacheOpenOptions) -> Result<DirCache> {
         match cache_open_options.dir_open {
             DirOpen::OnlyIfExists => {
@@ -91,6 +95,7 @@ pub struct CacheOpenOptions {
 }
 
 impl CacheOpenOptions {
+    #[must_use]
     pub fn new(dir_open: DirOpen, eager_load_to_ram: bool) -> Self {
         Self {
             dir_open,
@@ -168,6 +173,7 @@ impl Default for GenerationOpt {
 }
 
 impl GenerationOpt {
+    #[must_use]
     pub const fn new(
         max_generations: NonZeroUsize,
         old_gen_encoding: Encoding,
@@ -189,7 +195,7 @@ pub enum Encoding {
 }
 
 impl Encoding {
-    pub(crate) fn serialize(&self) -> impl Display {
+    pub(crate) fn serialize(self) -> impl Display {
         match self {
             Encoding::Plain => 0u8,
             #[cfg(feature = "lz4")]
