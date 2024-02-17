@@ -28,24 +28,45 @@ pub struct DirCache {
 
 impl DirCache {
     /// Get this [`DirCache`]'s [`DirCacheOpts`].
-    /// Useful if only changing one opt for an operation.
+    /// To change one opt for an operation, for example.
     #[inline]
+    #[must_use]
     pub fn opts(&self) -> &DirCacheOpts {
         &self.opts
     }
 
+    /// Get the value of a key using this [`DirCache`]'s options.
+    /// Returns [`Option::None`] if the key isn't stored in the cache.
+    /// If the key is stored in the cache it will be retrieved either from memory or disk.
+    /// The value will be owned only if [`MemPullOpt::DontKeepInMemoryOnRead`] is specified
+    /// which is why the return value is a [`Cow<_>`]
+    /// # Errors
+    /// Various io-errors reading and managing disk state
     #[inline]
     pub fn get(&mut self, key: &Path) -> Result<Option<Cow<[u8]>>> {
         self.inner
             .get_opt(key, self.opts.mem_pull_opt, self.opts.generation_opt)
     }
 
+    /// Same as [`DirCache::get`] but with opts other than what the [`DirCache`] was instantiated
+    /// with.
+    /// # Errors
+    /// Same as [`DirCache::get`]
     #[inline]
     pub fn get_opt(&mut self, key: &Path, opts: DirCacheOpts) -> Result<Option<Cow<[u8]>>> {
         self.inner
             .get_opt(key, opts.mem_pull_opt, opts.generation_opt)
     }
 
+    /// Get a key if it exists and is valid according to [`GenerationOpt`], otherwise
+    /// use the provided `insert_with` function to generate and insert a key.
+    /// The return value is a [`Cow<_>`] which is borrowed if [`MemPushOpt::MemoryOnly`] or [`MemPushOpt::RetainAndWrite`] is
+    /// specified, or owned otherwise.
+    /// # Errors
+    /// Accepts a fallible function which can fail, in which case that function's converted
+    /// error is returned wrapped.
+    /// May also perform disk-operations based on opts, which may fail.
+    /// Additionally, will fail on paths that are not safe to use with [`DirCache`]
     #[inline]
     pub fn get_or_insert<
         E: Into<Box<dyn std::error::Error>>,
@@ -64,6 +85,10 @@ impl DirCache {
         )
     }
 
+    /// Same as [`DirCache::get_or_insert`] but with [`DirCacheOpts`] different from what
+    /// this [`DirCache`] was instantiated with.
+    /// # Errors
+    /// Same as [`DirCache::get_or_insert`]
     #[inline]
     pub fn get_or_insert_opt<
         E: Into<Box<dyn std::error::Error>>,
@@ -83,6 +108,14 @@ impl DirCache {
         )
     }
 
+    /// Insert `content` as a value for the provided `key` into this [`DirCache`].
+    /// Will result in direct writes to disk if [`MemPushOpt::MemoryOnly`] isn't used.
+    /// If [`MemPushOpt::MemoryOnly`] isn't used and [`GenerationOpt`] specifies more
+    /// than one generation, a new generation will be written to disk, and previous generations
+    /// will age.
+    /// # Errors
+    /// Will error on using a key that's not safe to use with [`DirCache`].
+    /// May error on various io-errors relating to writing to disk.
     #[inline]
     pub fn insert(&mut self, key: &Path, content: Vec<u8>) -> Result<()> {
         self.inner.insert_opt(
@@ -93,23 +126,39 @@ impl DirCache {
         )
     }
 
+    /// Insert `content` as a value for the provided `key` using the specified `opts` instead
+    /// of the [`DirCacheOpts`] that this [`DirCache`] was instantiated with, otherwise same as [`DirCache::insert`].
+    /// # Errors
+    /// Same as [`DirCache::insert`]
     #[inline]
     pub fn insert_opt(&mut self, key: &Path, content: Vec<u8>, opts: DirCacheOpts) -> Result<()> {
         self.inner
             .insert_opt(key, content, opts.mem_push_opt, opts.generation_opt)
     }
 
+    /// Removes a key from the map, and cleans up the state left on disk.
+    /// # Errors
+    /// Various io-errors relating to probing and deleting content from disk
     #[inline]
     pub fn remove(&mut self, key: &Path) -> Result<bool> {
         self.inner.remove(key)
     }
 
+    /// Sync in-memory written content to disk, same as [`DirCache::sync`].
+    /// If [`SyncOpt::ManualSync`] and [`MemPushOpt::MemoryOnly`] are both enabled,
+    /// calling this method is the only way to flush map-state to disk.
+    /// # Errors
+    /// Various io-errors related to writing to disk
     #[inline]
     pub fn sync(&mut self) -> Result<()> {
         self.inner
             .sync_to_disk(self.opts.mem_push_opt, self.opts.generation_opt)
     }
 
+    /// Sync in-memory written content to disk, same as [`DirCache::sync`] but with options
+    /// different to those this [`DirCache`] was instantiated with.
+    /// # Errors
+    /// Same as [`DirCache::sync`]
     #[inline]
     pub fn sync_opt(&mut self, opts: DirCacheOpts) -> Result<()> {
         self.inner
@@ -255,7 +304,6 @@ impl DirCacheInner {
         let Some(_prev) = self.store.remove(key) else {
             return Ok(false);
         };
-        // Can't remove_dir_all because of potential subdirs
         let path = self.base.safe_join(key)?;
         try_remove_dir(&path)?;
         Ok(true)
