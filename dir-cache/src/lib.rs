@@ -1,3 +1,11 @@
+//! # dir-cache - A directory based cache
+//!
+//! Can be useful in cases when iteratively writing code that uses dynamic data that rarely changes.
+//! For example, probing some API.
+//!
+//! The cache is convenient for some use-cases, but not performant and should not be
+//! used in situations were cache-performance is important.
+//!
 use crate::disk::{
     ensure_dir, ensure_removed_file, read_all_in_dir, read_metadata_if_present,
     read_raw_if_present, try_remove_dir,
@@ -21,6 +29,25 @@ mod time;
 const MANIFEST_VERSION: u64 = 1;
 const MANIFEST_FILE: &str = "dir-cache-manifest.txt";
 
+/// A directory-based cache with a map-like interface.
+/// # Example
+/// ```
+/// use std::convert::Infallible;
+/// use std::path::Path;
+/// use dir_cache::opts::{CacheOpenOptions, DirCacheOpts, DirOpenOpt};
+/// fn use_cache() {
+///     let temp = tempdir::TempDir::new("dir-cache-doc-test").unwrap();
+///     let mut dir_cache = DirCacheOpts::default()
+///         .open(temp.path(), CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false)).unwrap();
+///
+///     // Be careful about paths used, these are joined onto the base directory and
+///     // should ideally not be dynamic
+///     let slow_value_key = Path::new("slow-key");
+///     // Will only execute the closure if the value is not present.
+///     let value = dir_cache.get_or_insert(slow_value_key, || Ok::<_, Infallible>(b"My hard to get value".to_vec())).unwrap();
+///     assert_eq!(b"My hard to get value".as_slice(), value.as_ref());
+/// }
+/// ```
 pub struct DirCache {
     inner: DirCacheInner,
     opts: DirCacheOpts,

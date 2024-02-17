@@ -1,6 +1,6 @@
 use dir_cache::error::Error;
 use dir_cache::opts::{
-    CacheOpenOptions, DirCacheOpts, DirOpen, Encoding, ExpirationOpt, GenerationOpt, MemPullOpt,
+    CacheOpenOptions, DirCacheOpts, DirOpenOpt, Encoding, ExpirationOpt, GenerationOpt, MemPullOpt,
     MemPushOpt, SyncOpt,
 };
 use dir_cache::DirCache;
@@ -57,7 +57,7 @@ fn create_only_if_exists_fail_if_not_exists() {
     let doesnt_exist = tmp.path().join("missing");
     let Err(e) = DirCacheOpts::default().open(
         &doesnt_exist,
-        CacheOpenOptions::new(DirOpen::OnlyIfExists, true),
+        CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, true),
     ) else {
         panic!("Expected err on dir not existing");
     };
@@ -69,7 +69,10 @@ fn create_only_if_exists_works_if_exists() {
     let tmp = tempdir::TempDir::new("create_only_if_exists_works_if_exists").unwrap();
     let exists = tmp.path();
     DirCacheOpts::default()
-        .open(&exists, CacheOpenOptions::new(DirOpen::OnlyIfExists, true))
+        .open(
+            &exists,
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, true),
+        )
         .unwrap();
 }
 
@@ -80,7 +83,7 @@ fn create_if_missing_will_create() {
     let _ = DirCacheOpts::default()
         .open(
             &doesnt_exist,
-            CacheOpenOptions::new(DirOpen::CreateIfMissing, true),
+            CacheOpenOptions::new(DirOpenOpt::CreateIfMissing, true),
         )
         .unwrap();
     assert_dir_at(&doesnt_exist);
@@ -93,12 +96,12 @@ fn open_on_existing_file_fails() {
     std::fs::write(&bad_file, "grenade").unwrap();
     let expect_err = DirCacheOpts::default().open(
         &bad_file,
-        CacheOpenOptions::new(DirOpen::OnlyIfExists, true),
+        CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, true),
     );
     assert!(matches!(expect_err, Err(Error::Open(_))));
     let expect_err = DirCacheOpts::default().open(
         &bad_file,
-        CacheOpenOptions::new(DirOpen::CreateIfMissing, true),
+        CacheOpenOptions::new(DirOpenOpt::CreateIfMissing, true),
     );
     assert!(matches!(expect_err, Err(Error::WriteContent(_, _))));
 }
@@ -108,7 +111,10 @@ fn insert_then_get_with_defaults() {
     let tmp = tempdir::TempDir::new("insert_then_get_with_defaults").unwrap();
     let cd = tmp.path().join("cache-dir");
     let mut dc = DirCacheOpts::default()
-        .open(&cd, CacheOpenOptions::new(DirOpen::CreateIfMissing, true))
+        .open(
+            &cd,
+            CacheOpenOptions::new(DirOpenOpt::CreateIfMissing, true),
+        )
         .unwrap();
     let my_key = dummy_key();
     let my_content = dummy_content();
@@ -122,7 +128,10 @@ fn insert_with_then_get_with_defaults() {
     let tmp = tempdir::TempDir::new("insert_with_then_get_with_defaults").unwrap();
     let cd = tmp.path().join("cache-dir");
     let mut dc = DirCacheOpts::default()
-        .open(&cd, CacheOpenOptions::new(DirOpen::CreateIfMissing, true))
+        .open(
+            &cd,
+            CacheOpenOptions::new(DirOpenOpt::CreateIfMissing, true),
+        )
         .unwrap();
     let my_key = dummy_key();
     let my_content = dummy_content();
@@ -139,7 +148,10 @@ fn insert_with_then_remove_with_defaults() {
     let tmp = tempdir::TempDir::new("insert_with_then_remove_with_defaults").unwrap();
     let cd = tmp.path().join("cache-dir");
     let mut dc = DirCacheOpts::default()
-        .open(&cd, CacheOpenOptions::new(DirOpen::CreateIfMissing, true))
+        .open(
+            &cd,
+            CacheOpenOptions::new(DirOpenOpt::CreateIfMissing, true),
+        )
         .unwrap();
     let my_key = dummy_key();
     let my_content = dummy_content();
@@ -243,7 +255,7 @@ fn insert_sync_drop_reopen() {
         .with_sync_opt(SyncOpt::SyncOnDrop)
         .open(
             tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false),
         )
         .unwrap();
     let my_key = dummy_key();
@@ -256,7 +268,7 @@ fn insert_sync_drop_reopen() {
         .with_sync_opt(SyncOpt::SyncOnDrop)
         .open(
             tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false),
         )
         .unwrap();
     assert_eq!(my_content, new_dc.get(my_key).unwrap().unwrap().as_ref());
@@ -270,7 +282,7 @@ fn rejects_bad_paths_on_saves() {
     let mut dc = DirCacheOpts::default()
         .open(
             tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false),
         )
         .unwrap();
     // Absolute path on unix, does not join properly
@@ -298,55 +310,55 @@ fn rejects_bad_paths_on_saves() {
 }
 
 #[test]
-fn write_generational_finds_on_disk() {
-    let tmp = tempdir::TempDir::new("write_generational_finds_on_disk").unwrap();
-    assert_empty_dir_at(tmp.path());
-    let mut dc = DirCacheOpts::default()
-        .with_generation_opt(GenerationOpt::new(
-            NonZeroUsize::new(4).unwrap(),
-            Encoding::Plain,
-            ExpirationOpt::DoNothing,
-        ))
-        .with_mem_push_opt(MemPushOpt::PassthroughWrite)
-        .open(
-            tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
-        )
-        .unwrap();
-    let my_key = dummy_key();
-
-    dc.insert(my_key, b"gen5".to_vec()).unwrap();
-    dc.insert(my_key, b"gen4".to_vec()).unwrap();
-    dc.insert(my_key, b"gen3".to_vec()).unwrap();
-    dc.insert(my_key, b"gen2".to_vec()).unwrap();
-    dc.insert(my_key, b"gen1".to_vec()).unwrap();
-    dc.insert(my_key, b"gen0".to_vec()).unwrap();
-    let path = tmp.path().join(my_key);
-    let mut files = all_files_in(&path);
-    assert_eq!(5, files.len(), "files: {files:?}");
-    let expect_manifest = path.join("dir-cache-manifest.txt");
-    assert!(files.remove(&expect_manifest));
-    let expect_gen0 = path.join("dir-cache-generation-0");
-    assert!(files.remove(&expect_gen0));
-    let content = std::fs::read(&expect_gen0).unwrap();
-    assert_eq!(b"gen0".as_slice(), &content);
-    let expect_gen1 = path.join("dir-cache-generation-1");
-    assert!(files.remove(&expect_gen1));
-    let content = std::fs::read(&expect_gen1).unwrap();
-    assert_eq!(b"gen1".as_slice(), &content);
-    let expect_gen2 = path.join("dir-cache-generation-2");
-    assert!(files.remove(&expect_gen2));
-    let content = std::fs::read(&expect_gen2).unwrap();
-    assert_eq!(b"gen2".as_slice(), &content);
-    let expect_gen3 = path.join("dir-cache-generation-3");
-    assert!(files.remove(&expect_gen3));
-    let content = std::fs::read(&expect_gen3).unwrap();
-    assert_eq!(b"gen3".as_slice(), &content);
-    assert!(files.is_empty());
-    // Removes all generations
-    assert!(dc.remove(my_key).unwrap());
-    assert!(check_path(&tmp.path().join(my_key)).is_none());
+fn write_generational_all_opts() {
+    in_all_opts_context(
+        6,
+        |opts: &DirCacheOpts, _open: &CacheOpenOptions| {
+            // Don't write anything automatically
+            opts.generation_opt.max_generations == NonZeroUsize::new(4).unwrap()
+                && !matches!(opts.mem_push_opt, MemPushOpt::MemoryOnly)
+        },
+        |cache_create, _opts| {
+            let tmp = tempdir::TempDir::new("write_generational_all_opts").unwrap();
+            assert_empty_dir_at(tmp.path());
+            let mut dc = cache_create(tmp.path());
+            let my_key = dummy_key();
+            dc.insert(my_key, b"gen5".to_vec()).unwrap();
+            dc.insert(my_key, b"gen4".to_vec()).unwrap();
+            dc.insert(my_key, b"gen3".to_vec()).unwrap();
+            dc.insert(my_key, b"gen2".to_vec()).unwrap();
+            dc.insert(my_key, b"gen1".to_vec()).unwrap();
+            dc.insert(my_key, b"gen0".to_vec()).unwrap();
+            dc.sync().unwrap();
+            let path = tmp.path().join(my_key);
+            let mut files = all_files_in(&path);
+            assert_eq!(5, files.len(), "files: {files:?}");
+            let expect_manifest = path.join("dir-cache-manifest.txt");
+            assert!(files.remove(&expect_manifest));
+            let expect_gen0 = path.join("dir-cache-generation-0");
+            assert!(files.remove(&expect_gen0));
+            let content = std::fs::read(&expect_gen0).unwrap();
+            assert_eq!(b"gen0".as_slice(), &content);
+            let expect_gen1 = path.join("dir-cache-generation-1");
+            assert!(files.remove(&expect_gen1));
+            let content = std::fs::read(&expect_gen1).unwrap();
+            assert_eq!(b"gen1".as_slice(), &content);
+            let expect_gen2 = path.join("dir-cache-generation-2");
+            assert!(files.remove(&expect_gen2));
+            let content = std::fs::read(&expect_gen2).unwrap();
+            assert_eq!(b"gen2".as_slice(), &content);
+            let expect_gen3 = path.join("dir-cache-generation-3");
+            assert!(files.remove(&expect_gen3));
+            let content = std::fs::read(&expect_gen3).unwrap();
+            assert_eq!(b"gen3".as_slice(), &content);
+            assert!(files.is_empty());
+            // Removes all generations
+            assert!(dc.remove(my_key).unwrap());
+            assert!(check_path(&tmp.path().join(my_key)).is_none());
+        },
+    );
 }
+
 #[test]
 fn write_generational_not_if_in_mem_only() {
     let tmp = tempdir::TempDir::new("write_generational_not_if_in_mem_only").unwrap();
@@ -355,12 +367,12 @@ fn write_generational_not_if_in_mem_only() {
         .with_generation_opt(GenerationOpt::new(
             NonZeroUsize::new(4).unwrap(),
             Encoding::Plain,
-            ExpirationOpt::DoNothing,
+            ExpirationOpt::NoExpiry,
         ))
         .with_mem_push_opt(MemPushOpt::MemoryOnly)
         .open(
             tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false),
         )
         .unwrap();
     let my_key = dummy_key();
@@ -392,12 +404,12 @@ fn write_generational_lz4() {
         .with_generation_opt(GenerationOpt::new(
             NonZeroUsize::new(4).unwrap(),
             Encoding::Lz4,
-            ExpirationOpt::DoNothing,
+            ExpirationOpt::NoExpiry,
         ))
         .with_mem_push_opt(MemPushOpt::PassthroughWrite)
         .open(
             tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false),
         )
         .unwrap();
     let my_key = dummy_key();
@@ -444,7 +456,7 @@ fn tolerates_foreign_files() {
         .with_sync_opt(SyncOpt::SyncOnDrop)
         .open(
             tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false),
         )
         .unwrap();
     let my_key = dummy_key();
@@ -465,7 +477,7 @@ fn tolerates_foreign_files() {
         .with_sync_opt(SyncOpt::SyncOnDrop)
         .open(
             tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false),
         )
         .unwrap();
     assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
@@ -484,7 +496,7 @@ fn can_write_and_pick_up_subdirs() {
         .with_sync_opt(SyncOpt::SyncOnDrop)
         .open(
             tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false),
         )
         .unwrap();
     let my_key = dummy_key();
@@ -503,7 +515,7 @@ fn can_write_and_pick_up_subdirs() {
         .with_sync_opt(SyncOpt::SyncOnDrop)
         .open(
             tmp.path(),
-            CacheOpenOptions::new(DirOpen::OnlyIfExists, false),
+            CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false),
         )
         .unwrap();
     assert_eq!(my_content, dc.get(my_key).unwrap().unwrap().as_ref());
@@ -589,13 +601,13 @@ fn in_all_opts_context<
         ] {
             for i in 0..num_generations {
                 for exp in [
-                    ExpirationOpt::DoNothing,
-                    ExpirationOpt::DeleteAfter(Duration::from_secs(1_000)),
+                    ExpirationOpt::NoExpiry,
+                    ExpirationOpt::ExpiresAfter(Duration::from_secs(1_000)),
                 ] {
                     let gen =
                         GenerationOpt::new(NonZeroUsize::new(i + 1).unwrap(), Encoding::Plain, exp);
                     for sync in [SyncOpt::SyncOnDrop, SyncOpt::ManualSync] {
-                        for dir_open in [DirOpen::OnlyIfExists, DirOpen::CreateIfMissing] {
+                        for dir_open in [DirOpenOpt::OnlyIfExists, DirOpenOpt::CreateIfMissing] {
                             for eager in [true, false] {
                                 let opts = DirCacheOpts::new(mem_pull, mem_push, gen, sync);
                                 let cache_open_opts = CacheOpenOptions::new(dir_open, eager);

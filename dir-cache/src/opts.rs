@@ -6,6 +6,8 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;
 
+/// Options for controlling the behavior of operations on a [`DirCache`].
+/// See the specific options for more details
 #[derive(Debug, Copy, Clone, Default)]
 pub struct DirCacheOpts {
     pub mem_pull_opt: MemPullOpt,
@@ -60,7 +62,7 @@ impl DirCacheOpts {
     /// Various io-errors, from creating the [`DirCache`].
     pub fn open(self, path: &Path, cache_open_options: CacheOpenOptions) -> Result<DirCache> {
         match cache_open_options.dir_open {
-            DirOpen::OnlyIfExists => {
+            DirOpenOpt::OnlyIfExists => {
                 match exists(path)? {
                     FileObjectExists::AsDir => {}
                     FileObjectExists::No => {
@@ -75,7 +77,7 @@ impl DirCacheOpts {
                     }
                 };
             }
-            DirOpen::CreateIfMissing => {
+            DirOpenOpt::CreateIfMissing => {
                 ensure_dir(path)?;
             }
         }
@@ -90,13 +92,13 @@ impl DirCacheOpts {
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct CacheOpenOptions {
-    pub(crate) dir_open: DirOpen,
+    pub(crate) dir_open: DirOpenOpt,
     pub(crate) eager_load_to_ram: bool,
 }
 
 impl CacheOpenOptions {
     #[must_use]
-    pub fn new(dir_open: DirOpen, eager_load_to_ram: bool) -> Self {
+    pub fn new(dir_open: DirOpenOpt, eager_load_to_ram: bool) -> Self {
         Self {
             dir_open,
             eager_load_to_ram,
@@ -104,43 +106,47 @@ impl CacheOpenOptions {
     }
 }
 
+/// Options for when a [`DirCache`] is opened
 #[derive(Debug, Copy, Clone, Default)]
-pub enum DirOpen {
-    /// Only open if a dir-cache already exists at the path, otherwise fail
+pub enum DirOpenOpt {
+    /// Only open if a `dir-cache` directory already exists at the path, otherwise fail
     OnlyIfExists,
-    /// Create a dir-cache if none exists at the path
+    /// Create a `dir-cache` directory if none exists at the path
     #[default]
     CreateIfMissing,
 }
 
-/// Memory flush option, determines whether the data should be retained in memory when written to disk
+/// Memory push option, determines whether the data should be retained in memory when written to disk
 #[derive(Debug, Copy, Clone, Default)]
 pub enum MemPushOpt {
     /// Keep the data in memory after writing
     RetainAndWrite,
-    /// Write the data into ram, don't automatically sync to disk
+    /// Write the data into memory, don't automatically sync to disk
     MemoryOnly,
     /// Remove the data from memory after writing
     #[default]
     PassthroughWrite,
 }
 
-/// Memory pull options, determines whether data should be cached in RAM when pulled from disk
+/// Memory pull options, determines whether data should be cached in memory when pulled from disk,
+/// such as during a `get` operation.
 #[derive(Debug, Copy, Clone, Default)]
 pub enum MemPullOpt {
+    /// Reads the value from disk, then retains it in memory
     #[default]
     KeepInMemoryOnRead,
+    /// Reads the value from disk, but does not keep it stored in memory
     DontKeepInMemoryOnRead,
 }
 
-/// Expiration options, what to do when an entry is found to be expired
+/// Expiration options, how to determine if an entry has expired
 #[derive(Debug, Copy, Clone, Default)]
 pub enum ExpirationOpt {
-    /// Just leave it
+    /// Entries never expire
     #[default]
-    DoNothing,
-    /// Try to delete it from disk
-    DeleteAfter(Duration),
+    NoExpiry,
+    /// Entries expire after
+    ExpiresAfter(Duration),
 }
 
 impl ExpirationOpt {
@@ -148,27 +154,28 @@ impl ExpirationOpt {
     pub(crate) fn as_dur(self) -> Duration {
         match self {
             // End of all times
-            ExpirationOpt::DoNothing => Duration::MAX,
-            ExpirationOpt::DeleteAfter(dur) => dur,
+            ExpirationOpt::NoExpiry => Duration::MAX,
+            ExpirationOpt::ExpiresAfter(dur) => dur,
         }
     }
 }
 
-/// How to treat generations of data
+/// Data can be saved as generations (keeping older values of keys),
+/// these options determine how those generations are managed
 #[derive(Debug, Copy, Clone)]
 pub struct GenerationOpt {
-    /// How many old copies to keep
-    pub(crate) max_generations: NonZeroUsize,
+    /// How many old copies to keep, 1 effectively means no generations, just one value.
+    pub max_generations: NonZeroUsize,
     /// How to encode older generations
     pub(crate) old_gen_encoding: Encoding,
-    /// When a value in any generation is expired
+    /// How to determine when a value of any generation has expired
     pub(crate) expiration: ExpirationOpt,
 }
 
 impl Default for GenerationOpt {
     #[inline]
     fn default() -> Self {
-        Self::new(NonZeroUsize::MIN, Encoding::Plain, ExpirationOpt::DoNothing)
+        Self::new(NonZeroUsize::MIN, Encoding::Plain, ExpirationOpt::NoExpiry)
     }
 }
 
@@ -187,9 +194,12 @@ impl GenerationOpt {
     }
 }
 
+/// Different encoding options
 #[derive(Copy, Clone, Debug)]
 pub enum Encoding {
+    /// No encoding
     Plain,
+    /// Compress using lz4
     #[cfg(feature = "lz4")]
     Lz4,
 }
@@ -215,6 +225,7 @@ impl Encoding {
     }
 
     #[inline]
+    #[allow(clippy::unnecessary_wraps)]
     pub(crate) fn encode(self, content: Vec<u8>) -> Result<Vec<u8>> {
         match self {
             Encoding::Plain => Ok(content),
@@ -233,7 +244,8 @@ impl Encoding {
     }
 }
 
-/// Whether syncing should be done on drop
+/// Options controlling syncing, ensuring that the [`DirCache`]'s state kept in memory is committed to disk.
+/// Unnecessary if all keys are not written with [`MemPushOpt::MemoryOnly`]
 #[derive(Debug, Copy, Clone, Default)]
 pub enum SyncOpt {
     /// Sync when dropped (syncing can still be done manually)
