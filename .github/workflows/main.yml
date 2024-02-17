@@ -1,4 +1,4 @@
-name: dir-cache CI
+name: CI
 
 on:
   push:

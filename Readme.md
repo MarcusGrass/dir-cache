@@ -6,6 +6,11 @@ in a somewhat browsable format.
 Designed to be simple to use and understand, 
 not particularly effective.
 
+[![ci](https://github.com/MarcusGrass/dir-cache/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/MarcusGrass/dir-cache/actions/workflows/main.yml)
+[![crates.io](https://img.shields.io/crates/v/dir-cache)](https://crates.io/crates/dir-cache)
+[![docs](https://docs.rs/dir-cache/badge.svg)](https://docs.rs/dir-cache)
+[![codecov](https://codecov.io/gh/MarcusGrass/dir-cache/graph/badge.svg?token=IHKY1G2ARV)](https://codecov.io/gh/MarcusGrass/dir-cache)
+
 ## Performance
 
 Bad.
