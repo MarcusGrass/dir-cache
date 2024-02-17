@@ -18,7 +18,7 @@ Bad.
 ## Performance pt. 2
 
 Okay if you write lazily to disk. 
-Since (potentially depending on options) each map operation corresponds to at multiple  
+Since (potentially depending on options) each map operation corresponds to at least multiple  
 disk-operations, the map is ill-suited to high-frequency operations.  
 
 Since a specific value will net a disk-representation that is strictly larger than the raw content size the `dir-cache` is space-inefficient.
