@@ -13,11 +13,10 @@ Bad.
 ## Performance pt. 2
 
 Okay if you write lazily to disk. 
-Since (potentially depending on options) each map operation corresponds to at least one 
-disk-operation, the map is ill-suited to high-frequency operations.  
+Since (potentially depending on options) each map operation corresponds to at multiple  
+disk-operations, the map is ill-suited to high-frequency operations.  
 
-Since a specific value will net a disk-representation that is strictly larger than the raw content size. 
-Meaning, the `dir-cache` is space-inefficient.
+Since a specific value will net a disk-representation that is strictly larger than the raw content size the `dir-cache` is space-inefficient.
 
 Lastly, file-system specifics may make many keys perform poorly (I'm looking at you NTFS).
 
@@ -37,6 +36,8 @@ If you want an embedded KV-store not in `Rust`, consider [RocksDB (github)](http
 If you want an embedded SQL-store, not in `Rust`, consider [Sqlite(website)](https://www.sqlite.org/index.html), 
 [Sync rust crate(Rusqlite)](https://crates.io/crates/rusqlite), [Async rust crate (Sqlx)](https://crates.io/crates/sqlx).
 
+Or whatever else.
+
 ## Why
 
 Now that the above is out of the way, we can get into why this crate exists.  
@@ -49,7 +50,7 @@ What I generally have done in these cases is saving the responses to disk and do
 This works, but it's cumbersome, it's handling the same old `std::fs::...` errors, figuring out a fitting directory 
 structure, and worst of all, writing two separate parts of code, fetch and analyze.
 
-### Raison d'etre
+### Raison d'etre summarized
 
 I want to write this:
 
