@@ -7,4 +7,4 @@ RUN apt update && \
     apt install -y build-essential
 COPY . .
 
-ENTRYPOINT ["cargo", "fuzz", "run", "fuzz_path"]
+ENTRYPOINT ["cargo", "fuzz", "run", "fuzz_path", "--", "-max_total_time=30"]
