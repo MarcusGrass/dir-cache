@@ -1,5 +1,5 @@
 [workspace]
-members = ["dir-cache"]
+members = ["dir-cache", "fuzz"]
 resolver = "2"
 
 [workspace.lints]

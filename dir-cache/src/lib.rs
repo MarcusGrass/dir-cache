@@ -256,7 +256,10 @@ impl DirCacheInner {
         } else {
             let file_path = path.safe_join("dir-cache-generation-0")?;
             let val = read_raw_if_present(&file_path)?.ok_or_else(|| {
-                Error::ReadContent("No file present on disk where expected", None)
+                Error::ReadContent(
+                    format!("No file present on disk where expected at {file_path:?}"),
+                    None,
+                )
             })?;
             if matches!(mem_pull_opt, MemPullOpt::DontKeepInMemoryOnRead) {
                 return Ok(Some(Cow::Owned(val)));
@@ -495,16 +498,28 @@ impl DirCacheEntry {
             let n1 = base.safe_join(format!("dir-cache-generation-{ind}"))?;
             let n2 = base.safe_join(format!("dir-cache-generation-{}", ind + 1))?;
             if ind == 0 && !matches!(old_gen_encoding, Encoding::Plain) {
-                let content = std::fs::read(&n1)
-                    .map_err(|e| Error::ReadContent("Failed to read first generation", Some(e)))?;
+                let content = std::fs::read(&n1).map_err(|e| {
+                    Error::ReadContent(
+                        format!("Failed to read first generation from {n1:?}"),
+                        Some(e),
+                    )
+                })?;
                 let new_content = old_gen_encoding.encode(content)?;
-                std::fs::write(&n2, new_content)
-                    .map_err(|e| Error::WriteContent("Failed to write encoded content", Some(e)))?;
+                std::fs::write(&n2, new_content).map_err(|e| {
+                    Error::WriteContent(
+                        format!("Failed to write encoded content to {n2:?}"),
+                        Some(e),
+                    )
+                })?;
                 // Don't need to remove the old file, it'll be overwritten on the next loop, or in the next step
             } else {
                 // No recoding necessary, just replace
-                std::fs::rename(&n1, &n2)
-                    .map_err(|e| Error::WriteContent("Failed to migrate generations", Some(e)))?;
+                std::fs::rename(&n1, &n2).map_err(|e| {
+                    Error::WriteContent(
+                        format!("Failed to migrate generations from {n1:?} to {n2:?}"),
+                        Some(e),
+                    )
+                })?;
             }
             gen_queue.push_front(gen);
         }
@@ -518,8 +533,13 @@ impl DirCacheEntry {
             self.on_disk.push_back(old);
         }
         self.last_updated = last_update;
-        std::fs::write(base.safe_join("dir-cache-generation-0")?, data)
-            .map_err(|e| Error::WriteContent("Failed to write new generation", Some(e)))?;
+        let next_gen_path = base.safe_join("dir-cache-generation-0")?;
+        std::fs::write(&next_gen_path, data).map_err(|e| {
+            Error::WriteContent(
+                format!("Failed to write new generation to {next_gen_path:?}"),
+                Some(e),
+            )
+        })?;
         self.dump_metadata(base)?;
         Ok(())
     }
@@ -550,8 +570,12 @@ impl DirCacheEntry {
                 last_updated = Some(age);
                 if eager_load {
                     let path = base.safe_join(format!("dir-cache-generation-{ind}"))?;
-                    let content = std::fs::read(&path)
-                        .map_err(|e| Error::ReadContent("Failed to eager load content", Some(e)))?;
+                    let content = std::fs::read(&path).map_err(|e| {
+                        Error::ReadContent(
+                            format!("Failed to eager load content from {path:?}"),
+                            Some(e),
+                        )
+                    })?;
                     in_mem = Some(InMemEntry {
                         committed: true,
                         content,
@@ -628,8 +652,13 @@ impl DirCacheEntry {
                 gen.encoding.serialize()
             ));
         }
-        std::fs::write(base.safe_join(MANIFEST_FILE)?, metadata)
-            .map_err(|e| Error::WriteContent("Failed to write manifest", Some(e)))?;
+        let manifest_path = base.safe_join(MANIFEST_FILE)?;
+        std::fs::write(&manifest_path, metadata).map_err(|e| {
+            Error::WriteContent(
+                format!("Failed to write manifest to {manifest_path:?}"),
+                Some(e),
+            )
+        })?;
         Ok(())
     }
 }
