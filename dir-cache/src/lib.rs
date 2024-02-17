@@ -36,7 +36,7 @@ const MANIFEST_FILE: &str = "dir-cache-manifest.txt";
 /// use std::path::Path;
 /// use dir_cache::opts::{CacheOpenOptions, DirCacheOpts, DirOpenOpt};
 /// fn use_cache() {
-///     let temp = tempdir::TempDir::new("dir-cache-doc-test").unwrap();
+///     let temp = tempfile::TempDir::with_prefix("dir-cache-doc-test").unwrap();
 ///     let mut dir_cache = DirCacheOpts::default()
 ///         .open(temp.path(), CacheOpenOptions::new(DirOpenOpt::OnlyIfExists, false)).unwrap();
 ///

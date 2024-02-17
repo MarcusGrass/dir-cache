@@ -27,7 +27,7 @@ fn smoke_map_functionality_all_opts() {
         3,
         |_opts, _open| true,
         |run_open_fn, _opts| {
-            let tmp = tempdir::TempDir::new("smoke_map_functionality_all_opts").unwrap();
+            let tmp = tempfile::TempDir::with_prefix("smoke_map_functionality_all_opts").unwrap();
             let mut dc = run_open_fn(tmp.path());
             let my_key = dummy_key();
             let my_content = dummy_content();
@@ -53,7 +53,7 @@ fn smoke_map_functionality_all_opts() {
 
 #[test]
 fn create_only_if_exists_fail_if_not_exists() {
-    let tmp = tempdir::TempDir::new("create_only_if_exists_fail_if_not_exists").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("create_only_if_exists_fail_if_not_exists").unwrap();
     let doesnt_exist = tmp.path().join("missing");
     let Err(e) = DirCacheOpts::default().open(
         &doesnt_exist,
@@ -66,7 +66,7 @@ fn create_only_if_exists_fail_if_not_exists() {
 
 #[test]
 fn create_only_if_exists_works_if_exists() {
-    let tmp = tempdir::TempDir::new("create_only_if_exists_works_if_exists").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("create_only_if_exists_works_if_exists").unwrap();
     let exists = tmp.path();
     DirCacheOpts::default()
         .open(
@@ -78,7 +78,7 @@ fn create_only_if_exists_works_if_exists() {
 
 #[test]
 fn create_if_missing_will_create() {
-    let tmp = tempdir::TempDir::new("create_if_missing_will_create").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("create_if_missing_will_create").unwrap();
     let doesnt_exist = tmp.path().join("missing");
     let _ = DirCacheOpts::default()
         .open(
@@ -91,7 +91,7 @@ fn create_if_missing_will_create() {
 
 #[test]
 fn open_on_existing_file_fails() {
-    let tmp = tempdir::TempDir::new("create_if_missing_will_create").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("create_if_missing_will_create").unwrap();
     let bad_file = tmp.path().join("badfile");
     std::fs::write(&bad_file, "grenade").unwrap();
     let expect_err = DirCacheOpts::default().open(
@@ -108,7 +108,7 @@ fn open_on_existing_file_fails() {
 
 #[test]
 fn insert_then_get_with_defaults() {
-    let tmp = tempdir::TempDir::new("insert_then_get_with_defaults").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("insert_then_get_with_defaults").unwrap();
     let cd = tmp.path().join("cache-dir");
     let mut dc = DirCacheOpts::default()
         .open(
@@ -125,7 +125,7 @@ fn insert_then_get_with_defaults() {
 
 #[test]
 fn insert_with_then_get_with_defaults() {
-    let tmp = tempdir::TempDir::new("insert_with_then_get_with_defaults").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("insert_with_then_get_with_defaults").unwrap();
     let cd = tmp.path().join("cache-dir");
     let mut dc = DirCacheOpts::default()
         .open(
@@ -145,7 +145,7 @@ fn insert_with_then_get_with_defaults() {
 
 #[test]
 fn insert_with_then_remove_with_defaults() {
-    let tmp = tempdir::TempDir::new("insert_with_then_remove_with_defaults").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("insert_with_then_remove_with_defaults").unwrap();
     let cd = tmp.path().join("cache-dir");
     let mut dc = DirCacheOpts::default()
         .open(
@@ -176,7 +176,7 @@ fn check_sync_on_write() {
                 && matches!(opts.mem_push_opt, MemPushOpt::PassthroughWrite)
         },
         |cache_create, _opts| {
-            let tmp = tempdir::TempDir::new("check_sync_on_write").unwrap();
+            let tmp = tempfile::TempDir::with_prefix("check_sync_on_write").unwrap();
             assert_empty_dir_at(tmp.path());
             let mut dc = cache_create(tmp.path());
             let my_key = dummy_key();
@@ -200,7 +200,7 @@ fn check_manual_sync_to_disk() {
                 && matches!(opts.mem_push_opt, MemPushOpt::MemoryOnly)
         },
         |cache_create, _opts| {
-            let tmp = tempdir::TempDir::new("check_manual_sync_to_disk").unwrap();
+            let tmp = tempfile::TempDir::with_prefix("check_manual_sync_to_disk").unwrap();
             assert_empty_dir_at(tmp.path());
             let mut dc = cache_create(tmp.path());
             let mut opts = *(dc.opts());
@@ -229,7 +229,7 @@ fn check_sync_on_drop() {
                 && matches!(opts.sync_opt, SyncOpt::SyncOnDrop)
         },
         |cache_create, _opts| {
-            let tmp = tempdir::TempDir::new("check_sync_on_drop").unwrap();
+            let tmp = tempfile::TempDir::with_prefix("check_sync_on_drop").unwrap();
             assert_empty_dir_at(tmp.path());
             let mut dc = cache_create(tmp.path());
             let mut opts = *(dc.opts());
@@ -249,7 +249,7 @@ fn check_sync_on_drop() {
 
 #[test]
 fn insert_sync_drop_reopen() {
-    let tmp = tempdir::TempDir::new("insert_sync_drop_reopen").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("insert_sync_drop_reopen").unwrap();
     assert_empty_dir_at(tmp.path());
     let mut dc = DirCacheOpts::default()
         .with_sync_opt(SyncOpt::SyncOnDrop)
@@ -277,7 +277,7 @@ fn insert_sync_drop_reopen() {
 #[test]
 #[cfg(unix)]
 fn rejects_bad_paths_on_saves() {
-    let tmp = tempdir::TempDir::new("rejects_bad_paths_on_saves").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("rejects_bad_paths_on_saves").unwrap();
     assert_empty_dir_at(tmp.path());
     let mut dc = DirCacheOpts::default()
         .open(
@@ -319,7 +319,7 @@ fn write_generational_all_opts() {
                 && !matches!(opts.mem_push_opt, MemPushOpt::MemoryOnly)
         },
         |cache_create, _opts| {
-            let tmp = tempdir::TempDir::new("write_generational_all_opts").unwrap();
+            let tmp = tempfile::TempDir::with_prefix("write_generational_all_opts").unwrap();
             assert_empty_dir_at(tmp.path());
             let mut dc = cache_create(tmp.path());
             let my_key = dummy_key();
@@ -361,7 +361,7 @@ fn write_generational_all_opts() {
 
 #[test]
 fn write_generational_not_if_in_mem_only() {
-    let tmp = tempdir::TempDir::new("write_generational_not_if_in_mem_only").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("write_generational_not_if_in_mem_only").unwrap();
     assert_empty_dir_at(tmp.path());
     let mut dc = DirCacheOpts::default()
         .with_generation_opt(GenerationOpt::new(
@@ -398,7 +398,7 @@ fn write_generational_not_if_in_mem_only() {
 #[test]
 #[cfg(feature = "lz4")]
 fn write_generational_lz4() {
-    let tmp = tempdir::TempDir::new("write_generational_lz4").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("write_generational_lz4").unwrap();
     assert_empty_dir_at(tmp.path());
     let mut dc = DirCacheOpts::default()
         .with_generation_opt(GenerationOpt::new(
@@ -450,7 +450,7 @@ fn write_generational_lz4() {
 
 #[test]
 fn tolerates_foreign_files() {
-    let tmp = tempdir::TempDir::new("tolerates_foreign_files").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("tolerates_foreign_files").unwrap();
     assert_empty_dir_at(tmp.path());
     let mut dc = DirCacheOpts::default()
         .with_sync_opt(SyncOpt::SyncOnDrop)
@@ -490,7 +490,7 @@ fn tolerates_foreign_files() {
 
 #[test]
 fn can_write_and_pick_up_subdirs() {
-    let tmp = tempdir::TempDir::new("can_write_subdirs").unwrap();
+    let tmp = tempfile::TempDir::with_prefix("can_write_subdirs").unwrap();
     assert_empty_dir_at(tmp.path());
     let mut dc = DirCacheOpts::default()
         .with_sync_opt(SyncOpt::SyncOnDrop)

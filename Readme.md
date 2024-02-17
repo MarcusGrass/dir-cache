@@ -114,14 +114,16 @@ This could potentially lead to destructive results.
 
 There are a few mitigations:
 
-1. Paths are never joined if the right side is absolute, and paths are not allowed to be anything but a [Component::Normal](https://doc.rust-lang.org/std/path/enum.Component.html). (Mitigating unexpected effective paths).  
+1. Paths are never joined if the right side is absolute, and paths are not allowed to be anything but a [Component::Normal](https://doc.rust-lang.org/std/path/enum.Component.html).
+as well as making sure parsed components combined length makes sense with the provided `OsStr` length (Mitigating unexpected effective paths).  
 2. Write operations are only done on specific file-names `dir-cache-generation-{manifest.txt | n}`. (Reducing risk of accidental overwrites of important files).  
 3. Removal operations are only done on the above specific file-names, as well as empty directories.  
 
 This covers all the cases that I can think of, but of course, doesn't cover the cases that I fail to think of.
 
-If using this library, a recommendation is to not use dynamic keys. I might add fuzzing and see if I can manage to fry 
-my disk.
+If using this library, a recommendation is to not use dynamic keys. 
+Fuzzing is done on `Linux` only, so extra danger if using dynamic keys on other Oses, although it's not safe 
+on `Linux` just because it's fuzzed.
 
 
 ## License

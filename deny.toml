@@ -1,0 +1,37 @@
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "x86_64-pc-windows-msvc" },
+]
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "deny"
+unsound = "deny"
+yanked = "deny"
+notice = "deny"
+ignore = []
+
+[bans]
+multiple-versions = "deny"
+deny = []
+skip = []
+
+[sources]
+allow-git = []
+
+[licenses]
+unlicensed = "deny"
+allow-osi-fsf-free = "neither"
+confidence-threshold = 1.0
+# I'd like to know if they pop into my dependency graph
+copyleft = "deny"
+allow = [
+    "Apache-2.0",
+    "MIT",
+]
+exceptions = [
+    { name = "dir-cache", allow = ["MPL-2.0"]},
+    { name = "dir-cache-fuzz", allow = ["MPL-2.0"]},
+]

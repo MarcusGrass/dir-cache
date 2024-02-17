@@ -1,2 +1,2 @@
 # Todo
-- Fuzz (in a container)
+- [x] Fuzz (in a container)

@@ -1,8 +1,5 @@
-use std::ffi::OsStr;
 use crate::error::{Error, Result};
 use std::path::{Component, Path, PathBuf};
-use crate::MANIFEST_FILE;
-
 
 pub(crate) trait SafePathJoin {
     /// The path needs to be safe, there will be a lot of path joining.
@@ -20,41 +17,37 @@ impl<'a> SafePathJoin for &'a Path {
     fn safe_join<P: AsRef<Path>>(&self, other: P) -> Result<PathBuf> {
         let other_ref = other.as_ref();
         // Rather not allow dots on created keys, need to allow the one exception, the manifest file
-        if other_ref.as_os_str() != OsStr::new(MANIFEST_FILE) {
-            if other_ref.is_absolute() {
+        if other_ref.is_absolute() {
+            return Err(Error::DangerousKey(format!(
+                "Got an absolute path when trying to join {self:?} and {other_ref:?}"
+            )));
+        }
+        if other_ref
+            .as_os_str()
+            .as_encoded_bytes()
+            .iter()
+            .any(|b| b == &b'\0')
+        {
+            return Err(Error::DangerousKey(format!(
+                "Raw path os str {other_ref:?} no null bytes allowed"
+            )));
+        }
+        let len = other_ref.as_os_str().len();
+        let mut cumulative_len = 0;
+        let mut num_components = 0;
+        for component in other_ref.components() {
+            let Component::Normal(os) = component else {
                 return Err(Error::DangerousKey(format!(
-                    "Got an absolute path when trying to join {self:?} and {other_ref:?}"
+                    "Found key with an unexpected path component {component:?} when trying to join {self:?} and {other_ref:?}"
                 )));
-            }
-            let mut has_err = false;
-            let len = other_ref.as_os_str().len();
-            let mut cumulative_len = 0;
-            let mut num_components = 0;
-            for component in other_ref.components() {
-                let Component::Normal(os) = component else {
-                    has_err = true;
-                    break;
-                };
-                let Some(utf8) = os.to_str() else {
-                    has_err = true;
-                    break;
-                };
-                if utf8 == "-" || utf8 == "_" {
-                    has_err = true;
-                    break;
-                }
-                cumulative_len += utf8.len();
-                num_components += 1;
-                if utf8.chars().any(|ch| !ch.is_alphanumeric() && ch != '-' && ch != '_') {
-                    has_err = true;
-                    break;
-                }
-            }
-            if cumulative_len == 0 || cumulative_len + num_components - 1 != len || has_err {
-                return Err(Error::DangerousKey(format!(
-                    "Found key that contains a component that is something other than just a normal alphanumeric utf8 string when trying to join {self:?} and {other_ref:?}"
-                )));
-            }
+            };
+            cumulative_len += os.len();
+            num_components += 1;
+        }
+        if cumulative_len == 0 || cumulative_len + num_components - 1 != len {
+            return Err(Error::DangerousKey(format!(
+                "Found key that contains a component that is something other than just a normal alphanumeric utf8 string when trying to join {self:?} and {other_ref:?}"
+            )));
         }
         let res = self.join(other_ref);
         Ok(res)
@@ -133,6 +126,7 @@ mod tests {
         let base = Path::new("base");
         base.safe_join("some_other_path").unwrap();
         base.safe_join("some/other/path").unwrap();
+        base.safe_join("some\\other\\path").unwrap();
     }
 
     #[test]
@@ -147,9 +141,9 @@ mod tests {
         assert!(base
             .safe_join(Path::new("fuzz-run-389boHa9s/s/./\""))
             .is_err());
-        Path::new("dir-cache-manifest.txt/.").components().for_each(|c| println!("{c:?}"));
         assert!(base
             .safe_join(Path::new("dir-cache-manifest.txt/."))
             .is_err());
+        assert!(base.safe_join(Path::new("nullterm\0")).is_err());
     }
 }
