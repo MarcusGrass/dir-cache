@@ -75,6 +75,10 @@ fn iterate_on_api_response_handling(dir_cache: &mut Cache) {
 
 With the above, both the fetching and analyzing code can be kept in the same place.
 
+Additionally, if some API returns an unparseable or otherwise unexpected response, 
+it's simple to look at it on disk, fix up the parsing, and then continue on from there, which 
+has been tremendously useful.
+
 ## Features
 
 The feature set is kept fairly minimal to support the above use case.
