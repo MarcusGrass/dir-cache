@@ -135,6 +135,66 @@ If using this library, a recommendation is to not use dynamic keys.
 Fuzzing is done on `Linux` only, so extra danger if using dynamic keys on other Oses, although it's not safe 
 on `Linux` just because it's fuzzed.
 
+### Async
+
+Mixing this library with async code becomes problematic for two reasons, these will 
+in the end boil down to application performance hits, but again, performance is not considered
+a priority, so it shouldn't matter, but they're presented below.
+
+#### Sync disk io
+
+All disk operations are done sync, since regular `tokio::fs` on `Linux` 
+discounting `tokio-uring`, still dispatches synchronous read syscalls, this isn't that 
+much of an issue overall. Where disk the disk-io sync API becomes an issue is 
+if it hogs a lot of time. [Alyce Ryhl wrote a great post about why that's problematic a while back](https://ryhl.io/blog/async-what-is-blocking/).
+
+#### Get or insert takes an `FnOnce`, not a `Future`
+
+Consider this very applicable case for the library, using reqwest:
+
+```Rust
+let key_base = format!("root-to-offset-{offset}");
+let key = Path::new(&key_base);
+let data = cache.get_or_insert(key, async move {
+    let url = format!("{ROOT_URL}&page[offset]={offset}");
+    let req = self.inner.get(url).build().unwrap();
+    let resp = self.inner.execute(req).await;
+    let body = resp.bytes().await.unwrap();
+    Ok::<_, Infallible>(body.to_vec())
+}).await.unwrap();
+```
+
+That's more or less an excerpt of some code I would have liked to write using this library.
+`reqwest` has an async API, I'd like to use it like that.
+
+Instead, I have to do this:
+```Rust
+let key_base = format!("root-to-offset-{offset}");
+let key = Path::new(&key_base);
+let data = cache.get_or_insert(key, || {
+    let url = format!("{ROOT_URL}&page[offset]={offset}");
+    let req = self.inner.get(url).build().unwrap();
+    let resp = self.inner.execute(req);
+    let resp = futures::executor::block_on(resp).unwrap();
+    let body = futures::executor::block_on(resp.bytes()).unwrap();
+    Ok::<_, Infallible>(body.to_vec())
+}).unwrap();
+```
+
+I'm forced to use [futures](https://crates.io/crates/futures) to block on the future 
+on the thread currently doing the insert. 
+The benefits of having an async api on `reqwest` are completely nullified, and 
+my thread is now holding up the `executor`, causing the same problem as above, possibly to a worse extent.
+
+It's possible to add an `async` version of `get_or_insert` easily, 
+but this problem is more theoretical, since performance isn't considered I haven't bothered doing that.
+Furthermore, I think it would look strange if this specific part of the code consideres `async`, 
+while the rest uses sync disk-io.
+
+One can fall back to using the plain `get`, and if that returns `None` run the async code that generates the 
+data, and `insert` after, 
+`get_or_insert` is just a convenience method anyway.
+
 
 ## License
 
