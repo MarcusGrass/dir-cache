@@ -52,6 +52,63 @@ fn smoke_map_functionality_all_opts() {
 }
 
 #[test]
+fn smoke_write_some_tiered_keys_all_opts_reopen() {
+    in_all_opts_context(
+        3,
+        |_opts, _open| true,
+        |run_open_fn, _opts| {
+            let tmp = tempfile::TempDir::with_prefix(
+                "smoke_write_a_fairly_large_amount_of_keys_all_opts",
+            )
+            .unwrap();
+            let mut dc = run_open_fn(tmp.path());
+            // Write 3 sub dirs, not that many values
+            for top_level_dir in 0..2 {
+                for sub_dir in 0..2 {
+                    for last_sub in 0..2 {
+                        let key_base = format!("key-{top_level_dir}-{sub_dir}-{last_sub}");
+                        let my_key = Path::new(&key_base);
+                        let my_content =
+                            format!("content-{top_level_dir}-{sub_dir}-{last_sub}").into_bytes();
+                        assert!(dc.get(my_key).unwrap().is_none());
+                        dc.insert(my_key, my_content.clone()).unwrap();
+                        assert_eq!(&my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+                        assert!(dc.remove(my_key).unwrap());
+                        assert!(!dc.remove(my_key).unwrap());
+                        assert!(dc.get(my_key).unwrap().is_none());
+                        assert_eq!(
+                            &my_content,
+                            dc.get_or_insert(my_key, || Ok::<_, Infallible>(my_content.clone()))
+                                .unwrap()
+                                .as_ref()
+                        );
+                        assert_eq!(&my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+                    }
+                }
+            }
+            dc.sync().unwrap();
+            drop(dc);
+            let mut dc = run_open_fn(tmp.path());
+            // Make sure the keys are there
+            for top_level_dir in 0..2 {
+                for sub_dir in 0..2 {
+                    for last_sub in 0..2 {
+                        let key_base = format!("key-{top_level_dir}-{sub_dir}-{last_sub}");
+                        let my_key = Path::new(&key_base);
+                        let my_content =
+                            format!("content-{top_level_dir}-{sub_dir}-{last_sub}").into_bytes();
+                        assert_eq!(&my_content, dc.get(my_key).unwrap().unwrap().as_ref());
+                        assert!(dc.remove(my_key).unwrap());
+                        assert!(!dc.remove(my_key).unwrap());
+                        assert!(dc.get(my_key).unwrap().is_none());
+                    }
+                }
+            }
+        },
+    );
+}
+
+#[test]
 fn create_only_if_exists_fail_if_not_exists() {
     let tmp = tempfile::TempDir::with_prefix("create_only_if_exists_fail_if_not_exists").unwrap();
     let doesnt_exist = tmp.path().join("missing");
@@ -583,12 +640,12 @@ fn check_path(path: &Path) -> Option<ExpectedDiskObject> {
 }
 
 fn in_all_opts_context<
-    UserFn: Fn(Box<dyn Fn(&Path) -> DirCache>, DirCacheOpts),
+    UserFn: FnMut(Box<dyn Fn(&Path) -> DirCache>, DirCacheOpts),
     UserFilterFn: Fn(&DirCacheOpts, &CacheOpenOptions) -> bool,
 >(
     num_generations: usize,
     filter: UserFilterFn,
-    user_fn: UserFn,
+    mut user_fn: UserFn,
 ) {
     for mem_pull in [
         MemPullOpt::DontKeepInMemoryOnRead,
